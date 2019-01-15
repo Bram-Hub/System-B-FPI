@@ -1,0 +1,2866 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html>
+<head>
+<title>System B</title>
+<meta http-equiv="Content-Type" content="text/html; charset=iso-8859-1" />
+<style type="text/css">
+BODY {font-family:verdana;}
+H1 {font-family:verdana;}
+TABLE.subproof {border-left-width:1px;border-left-color:black;border-left-style:solid;width:100%;}
+HR {margin:0px;}
+INPUT.linenumsinput {width:4em;border-width:1px;border-style:solid;border-color:#999999;}
+TEXTAREA.statementinput {font-family:courier;border-width:1px;border-style:solid;border-color:#999999;}
+SELECT {border-width:1px;border-style:solid;border-color:#999999;}
+HR {height:1px;border-bottom-color:black;border-bottom-width:1px;border-bottom-style:solid;}
+TD {vertical-align:top;}
+IMG.operation {border-width:2px;border-style:outset;border-color:#999999;}
+IMG.clickedoperation {border-width:2px;border-style:solid;border-color:#999999;position:relative;left:1px;top:1px;}
+IMG.disabledoperation {border-width:2px;border-style:dotted;border-color:#FFFFFF;}
+</style>
+<script type="text/javascript">
+
+// globals
+var enableDebugMessages = false;
+var lastFocus = null; // string of the ID for the textarea element that was last in focus
+var stCounter = 5; // counter for assigning unique ids for statement textarea elements
+var spCounter = 2; // counter for assigning unique ids for subproof table elements
+var compiled_rules = null;
+var source_rules = [
+	["Reit", "reit", ["{phi}|-phi"]], 
+	["MP", "mp", ["{phi -> psi, phi}|-psi"]], 
+	["Simp", "simp", ["{phi /\\ psi}|-phi", "{phi /\\ psi}|-psi"]], 
+	["Conj", "conj", ["{phi, psi}|-phi /\\ psi"]], 
+	["Add", "add", ["{phi}|-phi \\/ psi", "{psi}|-phi \\/ psi"]], 
+	["DN", "dneg", ["~~phi <=> phi"]], 
+	["Idem", "idem", ["phi \\/ phi <=> phi", "phi /\\ phi <=> phi"]], 
+	["Com", "com", ["phi /\\ psi <=> psi /\\ phi", "phi \\/ psi <=> psi \\/ phi"]], 
+	["Assoc", "assoc", ["phi /\\ (psi /\\ chi) <=> (phi /\\ psi) /\\ chi", "phi \\/ (psi \\/ chi) <=> (phi \\/ psi) \\/ chi"]], 
+	["Dist", "dist", ["phi /\\ (psi \\/ chi) <=> (phi /\\ psi) \\/ (phi /\\ chi)", "phi \\/ (psi /\\ chi) <=> (phi \\/ psi) /\\ (phi \\/ chi)"]], 
+	["DeM", "dem", ["~(phi /\\ psi) <=> ~phi \\/ ~psi", "~(phi \\/ psi) <=> ~phi /\\ ~psi"]], 
+	["Trans", "trans", ["phi -> psi <=> ~psi -> ~phi"]], 
+	["Exp", "exp", ["phi -> (psi -> chi) <=> (phi /\\ psi) -> chi"]], 
+	["Impl", "impl", ["phi -> psi <=> ~phi \\/ psi", "~(phi -> psi) <=> phi /\\ ~psi"]], 
+	["Equiv", "equiv", ["phi <-> psi <=> (phi -> psi) /\\ (psi -> phi)", "phi <-> psi <=> (phi /\\ psi) \\/ (~psi /\\ ~phi)"]], 
+	["CP", "cp", ["{phi, psi}|-phi -> psi"]]
+];
+// rules such as Generalized Simplification and Conditional Proof appear in source_rules 
+// but also have hard-coded special cases to handle them
+
+// constants
+var STMT_TYPE_OP = "operation";
+var STMT_TYPE_ATOM = "atom";
+var STMT_TYPE_VAR = "variable";
+var STMT_VAL_CONJ = "conjunction";
+var STMT_VAL_DISJ = "disjunction";
+var STMT_VAL_COND = "conditional";
+var STMT_VAL_BICOND = "biconditional";
+var STMT_VAL_NEG = "negation";
+var RULE_TYPE_EQUIV = "e";
+var RULE_TYPE_INFER = "i";
+var MATCH_RESULT_EXACT = 1; // used by matchTreesExact(), etc.
+var MATCH_RESULT_FAILED = 2;
+var MATCH_RESULT_APPLIED = 3; // used by matchTreesInfer(), matchTreesEquiv()
+var MATCH_RESULT_FAILED_GEN = 4;
+
+// Data Types, Interface
+//   Each proof, including the main proof and all subproofs, is represented as 
+// a table. Each proof table has a unique id attribute. For the main proof, 
+// it is "mainproof". For other proofs, it is "subproofN" where N is some 
+// positive integer. Each proof table has at least one row. 
+//   Each row has two cells (td elements). The first cell contains a hidden 
+// input element. The value of this input specifies the row's type. Valid 
+// values are "statement", "subproof", "assumption", and "ignore". The second 
+// cell's contents depend on the row's type. 
+//   "ignore" rows are used for hr elements and are ignored by most functions. 
+//   "assumption" rows each have 10 child nodes in the second cell. The first is 
+// a TextNode containing a step number. The second is an input button, the "Add 
+// a step" button. The third is a TextNode containing whitespace. The fourth 
+// is the "Remove a step" input button. The fifth is a TextNode containing 
+// whitespace. The sixth is the "Add a step after this subproof" input button. 
+// The seventh is a TextNode containing whitespace. The eigth is the "Add a 
+// subproof" input button. The ninth is a TextNode containing whitespace. The 
+// tenth is a textarea element that contains a statement/assumption. 
+//   "statement" cells contain 18 child nodes. The first 10 are the same as
+// those in "assumption" rows. The eleventh node is a TextNode containing 
+// whitespace. The twelfth is a select element containing System B's rules. 
+// The thirteenth is a TextNode containing whitespace. The fourteenth is an
+// input element containing line numbers. The fifteenth is a TextNode 
+// containing whitespace. The sixteenth is an input button for checking the 
+// statement against a rule. The seventeenth is a TextNode that presents
+// information about the result of checking the statement. The eighteenth is
+// a hidden input element that contains information about the results of 
+// checking that is used internally. 
+//   "subproof" cells contain one child node. The node is a table element 
+// that represents a proof. 
+//   Each statement/assumption textarea element has a unique id following the 
+// pattern "line1", "line2", etc. Each proof table has a unique id following 
+// the pattern "subproof1", "subproof2", etc. 
+//   Each internal check status input element's value should be one of three 
+// types: "invalid", "unchecked", or "valid/Ls" where Ls is a copy (a string) 
+// of the line numbers input element. 
+
+// Statement/Parse Trees
+//   A statement tree is a statement node and all statement nodes referenced 
+// by it, directly or indirectly. A statement node is an array with 3 elements. 
+// The first element is the node's type and should be one of STMT_TYPE_OP, 
+// STMT_TYPE_ATOM, and STMT_TYPE_VAR. The type should be a string. 
+//   The second element is the value of the node, a string. For a STMT_TYPE_OP 
+// node, this should be one of STMT_VAL_CONJ, STMT_VAL_DISJ, STMT_VAL_COND, 
+// STMT_VAL_BICOND, and STMT_VAL_NEG. For a STMT_TYPE_ATOM or STMT_TYPE_VAR
+// node, it should be a string of letters, case-sensitive. 
+//   The third element is either a reference to a child list of length > 0 or 
+// null. 
+//   A child list is an array of references to statement nodes. It should have 
+// a length of at least 1. 
+
+// Variable Environments
+//   An environment is an array of variable assignments. A variable assignment 
+// is an array of 3 elements. The first element is the variable's identifier. 
+// The second element is whether the variable is bound. The third element is 
+// a reference to a statement node, which may be null. 
+
+// Rules
+//   There are two types of rules: source rules and compiled rules. 
+//   A source rule is an array of length 3. The first element is the rule's 
+// display name, a string. The second element is the rule's internal identifier, 
+// also a string. The third element is an array of source rule forms. 
+//   A source rule form is a string, e.g. "{phi}|-phi" or "phi <=> ~~phi". 
+//   A compiled rule is an array of length 4. The first two elements are the 
+// same as those of a source rule. The third element is the rule's type, which 
+// should be either RULE_TYPE_INFER or RULE_TYPE_EQUIV. The fourth element is 
+// an array of compiled rule forms. 
+//   A compiled rule form is an array of length 2. If the rule is an inference, 
+// the first element is an array of references to statement nodes (parse tree 
+// nodes). These are the left-hand-side justification statements. If the rule 
+// is an equivalence, the first element is a reference to a statement node. 
+// This is a statement, which can be used as either the justification or the 
+// result of applying the rule (i.e. equivalences are bi-directional). The 
+// second element is a reference to a statement node. This is the result 
+// (inference) or one of two equivalent statements (equivalence). The statement 
+// nodes referenced by a compiled rule should contain statement variables and 
+// no propositional atoms. 
+//   Source rules are stored in the array source_rules and compiled rules are 
+// stored in the array compiled_rules after source_rules has been compiled. 
+//   Internal rule identifiers must be unique. Additionally, "invalid" is 
+// reserved and should not be used as a rule identifier. 
+// Additional restrictions on source rules: 
+// -Any given rule's forms must be only inferences or only equivalences. 
+// -The number of statements on the LHS of an inference can be at most 2. 
+// -Rules should have one statement on the RHS. 
+// -There may be bugs with rules with 0 statements on the LHS. 
+// -Rules can't have nested subproofs, e.g. as in CP or IP. 
+
+// returns the innerHTML of a new, default select element
+// i.e. <select><option value="invalid">Rule?</option>...</select>
+function newSelectElement() {
+	var inner = "<select>";
+	if(compiled_rules == null || compiled_rules.length == 0) {
+		debug("error: no compiled rules found in newSelectElement()");
+		return "";
+	}
+	inner = inner + "<option value=\"invalid\">Rule?</option>";
+	for(var i = 0;i < compiled_rules.length;i++) {
+		inner = inner + "<option value=\"" + compiled_rules[i][1] + "\">" + compiled_rules[i][0] + "</option>";
+	}
+	inner = inner + "</select>";
+	return inner;
+}
+
+// returns an array of the innerHTML of the two cells (td elements)
+//  of a new, default statement row
+// used for statements on the top level (main proof)
+function newStatementTop() {
+	var oldcounter = stCounter;
+	var newid = "line" + oldcounter;
+	stCounter++;
+	var innerhtml = new Array(2);
+	innerhtml[0] = "<input type=\"hidden\" value=\"statement\" />";
+	innerhtml[1] = "				N				<img src=\"addstep.gif\" alt=\"Add a step\" class=\"operation\" onclick=\"addStatement('" + newid + "');\" onmousedown=\"this.className='clickedoperation';\" onmouseup=\"this.className='operation';\" onmouseout=\"this.className='operation';\" />				<img src=\"removestep.gif\" alt=\"Remove a step\" class=\"operation\" onclick=\"removeStatement('" + newid + "');\" onmousedown=\"this.className='clickedoperation';\" onmouseup=\"this.className='operation';\" onmouseout=\"this.className='operation';\" />				<img src=\"addstepafter.gif\" alt=\"Add a step after this subproof\" class=\"disabledoperation\" onclick=\"\" onmousedown=\"\" onmouseup=\"\" onmouseout=\"\" />				<img src=\"addsubproof.gif\" alt=\"Add a subproof\" class=\"operation\" onclick=\"addSubproof('" + newid + "');\" onmousedown=\"this.className='clickedoperation';\" onmouseup=\"this.className='operation';\" onmouseout=\"this.className='operation';\" />				<textarea cols=\"52\" rows=\"1\" class=\"statementinput\" id=\"" + newid + "\" name=\"" + newid + "\" onfocus=\"lastFocus = this; return true;\" onkeyup=\"updateConnectives('" + newid + "');\"></textarea>					" + newSelectElement() + "				<input type=\"text\" class=\"linenumsinput\" value=\"\" name=\"linenumsinput" + oldcounter + "\" onkeyup=\"updateJustifications('" + newid + "');\" />				<input type=\"button\" value=\"Check\" name=\"\" onclick=\"check('" + newid + "');\" />								<input type=\"hidden\" value=\"unchecked\" name=\"\" />				";
+	return innerhtml;
+}
+
+// returns an array of the innerHTML of the two cells (td elements)
+//  of a new, default statement row
+// used for statements not on the top level (main proof)
+function newStatement() {
+	var oldcounter = stCounter;
+	var newid = "line" + oldcounter;
+	stCounter++;
+	var innerhtml = new Array(2);
+	innerhtml[0] = "<input type=\"hidden\" value=\"statement\" />";
+	innerhtml[1] = "				N				<img src=\"addstep.gif\" alt=\"Add a step\" class=\"operation\" onclick=\"addStatement('" + newid + "');\" onmousedown=\"this.className='clickedoperation';\" onmouseup=\"this.className='operation';\" onmouseout=\"this.className='operation';\" />				<img src=\"removestep.gif\" alt=\"Remove a step\" class=\"operation\" onclick=\"removeStatement('" + newid + "');\" onmousedown=\"this.className='clickedoperation';\" onmouseup=\"this.className='operation';\" onmouseout=\"this.className='operation';\" />				<img src=\"addstepafter.gif\" alt=\"Add a step after this subproof\" class=\"operation\" onclick=\"addStatementAfter('" + newid + "');\" onmousedown=\"this.className='clickedoperation';\" onmouseup=\"this.className='operation';\" onmouseout=\"this.className='operation';\" />				<img src=\"addsubproof.gif\" alt=\"Add a subproof\" class=\"operation\" onclick=\"addSubproof('" + newid + "');\" onmousedown=\"this.className='clickedoperation';\" onmouseup=\"this.className='operation';\" onmouseout=\"this.className='operation';\" />				<textarea cols=\"52\" rows=\"1\" class=\"statementinput\" id=\"" + newid + "\" name=\"" + newid + "\" onfocus=\"lastFocus = this; return true;\" onkeyup=\"updateConnectives('" + newid + "');\"></textarea>					" + newSelectElement() + "				<input type=\"text\" class=\"linenumsinput\" value=\"\" name=\"linenumsinput" + oldcounter + "\" onkeyup=\"updateJustifications('" + newid + "');\" />				<input type=\"button\" value=\"Check\" name=\"\" onclick=\"check('" + newid + "');\" />								<input type=\"hidden\" value=\"unchecked\" name=\"\" />				";
+	return innerhtml;
+}
+
+// returns an array of the innerHTML of the two cells (td elements)
+//  of a new, default assumption row
+// used for assumptions in the main proof, but not in subproofs
+function newAssumptionTop() {
+	var newid = "line" + stCounter;
+	stCounter++;
+	var innerhtml = new Array(2);
+	innerhtml[0] = "<input type=\"hidden\" value=\"assumption\" name=\"assumption\" />";
+	innerhtml[1] = "		N		<img src=\"addstep.gif\" alt=\"Add a step\" class=\"operation\" onclick=\"addStatement('" + newid + "');\" onmousedown=\"this.className='clickedoperation';\" onmouseup=\"this.className='operation';\" onmouseout=\"this.className='operation';\" />		<img src=\"removestep.gif\" alt=\"Remove a step\" class=\"operation\" onclick=\"removeStatement('" + newid + "');\" onmousedown=\"this.className='clickedoperation';\" onmouseup=\"this.className='operation';\" onmouseout=\"this.className='operation';\" />		<img src=\"addstepafter.gif\" alt=\"Add a step after assumptions\" class=\"operation\" onclick=\"addStatementAfter('" + newid + "');\" onmousedown=\"this.className='clickedoperation';\" onmouseup=\"this.className='operation';\" onmouseout=\"this.className='operation';\" />		<img src=\"addsubproof.gif\" alt=\"Add a subproof\" class=\"disabledoperation\" onclick=\"\" onmousedown=\"\" onmouseup=\"\" onmouseout=\"\" />		<textarea cols=\"52\" rows=\"1\" class=\"statementinput\" id=\"" + newid + "\" name=\"" + newid + "\" onfocus=\"lastFocus = this; return true;\" onkeyup=\"updateConnectives('" + newid + "');\"></textarea>		";
+	return innerhtml;
+}
+
+// returns an array of the innerHTML of the two cells (td elements)
+//  of a new, default assumption row
+// used for assumptions in subproofs, but not in the main proof
+function newAssumption() {
+	var newid = "line" + stCounter;
+	stCounter++;
+	var innerhtml = new Array(2);
+	innerhtml[0] = "<input type=\"hidden\" value=\"assumption\" name=\"assumption\" />";
+	innerhtml[1] = "		N		<img src=\"addstep.gif\" alt=\"Add a step\" class=\"operation\" onclick=\"addStatement('" + newid + "');\" onmousedown=\"this.className='clickedoperation';\" onmouseup=\"this.className='operation';\" onmouseout=\"this.className='operation';\" />		<img src=\"removestep.gif\" alt=\"Remove a step\" class=\"operation\" onclick=\"removeStatement('" + newid + "');\" onmousedown=\"this.className='clickedoperation';\" onmouseup=\"this.className='operation';\" onmouseout=\"this.className='operation';\" />		<img src=\"addstepafter.gif\" alt=\"Add a step after this subproof\" class=\"operation\" onclick=\"addStatementAfter('" + newid + "');\" onmousedown=\"this.className='clickedoperation';\" onmouseup=\"this.className='operation';\" onmouseout=\"this.className='operation';\" />		<img src=\"addsubproof.gif\" alt=\"Add a subproof\" class=\"disabledoperation\" onclick=\"\" onmousedown=\"\" onmouseup=\"\" onmouseout=\"\" />		<textarea cols=\"52\" rows=\"1\" class=\"statementinput\" id=\"" + newid + "\" name=\"" + newid + "\" onfocus=\"lastFocus = this; return true;\" onkeyup=\"updateConnectives('" + newid + "');\"></textarea>";
+	return innerhtml;
+}
+
+// returns an array of the innerHTML of the two cells (td elements)
+//  of a new, default subproof row, with 
+//  one assumption row, one hr row, and one statement row
+//  i.e. {"...", "<table><tr>...</tr><tr>...</tr><tr>...</tr></table>"}
+function newSubproof() {
+	var newid = "subproof" + spCounter;
+	spCounter++;
+	var innerhtml = new Array(2);
+	innerhtml[0] = "<input type=\"hidden\" value=\"subproof\" name=\"subproof\" />";
+	innerhtml[1] = "<table id=\"" + newid + "\" class=\"subproof\" width=\"100%\">			<tr><td>" + newAssumption()[0] + "</td><td>" + newAssumption()[1] + "</td></tr>			<tr>				<td><input type=\"hidden\" value=\"ignore\" /></td>				<td><hr /></td>			</tr>			<tr><td>" + newStatement()[0] + "</td><td>" + newStatement()[1] + "</td></tr>		</table>";
+	return innerhtml;
+}
+
+// add a line after a given statement
+// if the statement is an assumption in the main proof, this function adds 
+//  another assumption
+// if the statement is an assumption anywhere else, this is an error
+// otherwise, add a statement line at the same level
+// then change step numbers and justification line numbers as necessary
+// st is the id of a textarea element associated with the statement of each line
+function addStatement(st) {
+	var input_node = document.getElementById(st);
+	var tr_node = input_node.parentNode.parentNode;
+	var table_node = tr_node.parentNode.parentNode;
+	var index = tr_node.rowIndex;
+	var newindex = index+1;
+
+	// add a row
+	if(getRowType(tr_node) == "assumption") {
+		if(table_node.id == "mainproof") {
+			table_node.insertRow(newindex);
+			table_node.rows[newindex].insertCell(0);
+			table_node.rows[newindex].insertCell(0);
+			var temp_cells_html = newAssumptionTop();
+			table_node.rows[newindex].cells[0].innerHTML = temp_cells_html[0];
+			table_node.rows[newindex].cells[1].innerHTML = temp_cells_html[1];
+		}
+		else {
+			newindex = index+2;
+			table_node.insertRow(newindex);
+			var temp_cells_html = newStatement();
+			table_node.rows[newindex].insertCell(0);
+			table_node.rows[newindex].insertCell(0);
+			table_node.rows[newindex].cells[0].innerHTML = temp_cells_html[0];
+			table_node.rows[newindex].cells[1].innerHTML = temp_cells_html[1];
+		}
+	}
+	else if(table_node.id == "mainproof") {
+		table_node.insertRow(newindex);
+		var temp_cells_html = newStatementTop();
+		table_node.rows[newindex].insertCell(0);
+		table_node.rows[newindex].insertCell(0);
+		table_node.rows[newindex].cells[0].innerHTML = temp_cells_html[0];
+		table_node.rows[newindex].cells[1].innerHTML = temp_cells_html[1];
+	}
+	else {
+		table_node.insertRow(newindex);
+		var temp_cells_html = newStatement();
+		table_node.rows[newindex].insertCell(0);
+		table_node.rows[newindex].insertCell(0);
+		table_node.rows[newindex].cells[0].innerHTML = temp_cells_html[0];
+		table_node.rows[newindex].cells[1].innerHTML = temp_cells_html[1];
+	}
+	var newrow = table_node.rows[newindex];
+
+	// set step num for this row and update others
+	var stepnumnode = getStepNumNode(input_node.parentNode);
+	var stepnumstr = stepnumnode.nodeValue.match("\\d+");
+	if(stepnumstr == null || stepnumstr == "") {
+		debug("error getting step num of current step in addStatement()");
+		return false;
+	}
+	var stepnum = parseInt(stepnumstr);
+	getStepNumNode(newrow.cells[1]).nodeValue = " " + 0 + " ";
+	updateSteps(stepnum+1, 1, "mainproof", -1, -1);
+	getStepNumNode(newrow.cells[1]).nodeValue = " " + (stepnum+1) + " ";
+
+	return true;
+}
+
+// add a subproof table after or replacing the row associated with a given statement
+// if the statement is an assumption, this is an error
+// if the statement's input value is the empty string, remove the statement's 
+//  row and add a subproof there
+// otherwise, add a subproof after the statement's row
+// then change step numbers and justification line numbers as necessary
+// st is the id of a textarea element associated with the statement of each line
+function addSubproof(st) {
+	var input_node = document.getElementById(st);
+	var tr_node = input_node.parentNode.parentNode;
+	if(getRowType(tr_node) != "statement") {
+		debug("error: attempted to add a subproof in a subproof");
+		return false;
+	}
+
+	// get step number of current row
+	var stepnumnode = getStepNumNode(input_node.parentNode);
+	var stepnumstr = stepnumnode.nodeValue.match("\\d+");
+	if(stepnumstr == null || stepnumstr == "") {
+		debug("error getting step num of current step in addStatement()");
+		return false;
+	}
+	// step number of line directly before the new subproof's first step
+	var oldstepnum = parseInt(stepnumstr);
+	var newrow;
+	var offset = 2; // number of new steps added
+
+	// if current row's statement input is empty, replace it
+	if(input_node.value == "") {
+		var temp_cells_html = newSubproof();
+		tr_node.cells[0].innerHTML = temp_cells_html[0];
+		tr_node.cells[1].innerHTML = temp_cells_html[1];
+		newrow = tr_node;
+		oldstepnum--;
+		offset = 1;
+	}
+	// otherwise, add a new row
+	else {
+		var table_node = tr_node.parentNode.parentNode;
+		var index = tr_node.rowIndex;
+		table_node.insertRow(index+1);
+		newrow = table_node.rows[index+1];
+		var temp_cells_html = newSubproof();
+		newrow.insertCell(0);
+		newrow.insertCell(0);
+		newrow.cells[0].innerHTML = temp_cells_html[0];
+		newrow.cells[1].innerHTML = temp_cells_html[1];
+	}
+
+	// update step numbers for the new subproof and other steps
+	var newsubprooftable = newrow.cells[1].firstChild;
+	var newassumptioncell = newsubprooftable.rows[0].cells[1];
+	var newstatementcell = newsubprooftable.rows[2].cells[1];
+	getStepNumNode(newassumptioncell).nodeValue = " " + 0 + " ";
+	getStepNumNode(newstatementcell).nodeValue = " " + 0 + " ";
+	updateSteps(oldstepnum+1, offset, "mainproof", -1, -1);
+	getStepNumNode(newassumptioncell).nodeValue = " " + (oldstepnum+1) + " ";
+	getStepNumNode(newstatementcell).nodeValue = " " + (oldstepnum+2) + " ";
+	return true;
+}
+
+// removes a statement or subproof associated with the given statement
+// if the statement is an assumption in the main proof, check whether other
+//  assumptions exist in the main proof
+//  if there are other assumptions, remove this statement
+//  if there are no other statements, replace this statement with a new blank assumption
+// if the statement is an assumption anywhere else, check whether the associated subproof
+//  is the only line in its containing subproof
+//  if it is, replace the subproof with a new blank statement
+//  otherwise, remove the subproof
+// otherwise check whether the statement is the only statement in its containing subproof
+//  if it is, replace it with a new blank statement
+//  otherwise, remove the statement
+// then change step numbers, justification line numbers, check status text, and 
+//  internal check status input value as necessary
+// st is the id of a textarea element associated with the statement of each line
+function removeStatement(st) {
+	var textarea_node = document.getElementById(st);
+	var td_node = textarea_node.parentNode;
+	var stepnum_node = getStepNumNode(td_node);
+	var stepnum = parseInt(stepnum_node.nodeValue.match("\\d+")[0]);
+	var tr_node = td_node.parentNode;
+	var row_type = getRowType(tr_node);
+	var table_node = tr_node.parentNode.parentNode;
+	if(row_type == "assumption") {
+		if(table_node.id == "mainproof") {
+			// if this step is the only assumption in the main proof
+			if(stepnum == 1 && getRowType(table_node.rows[1]) == "ignore") {
+				// replace the assumption with a new blank assumption
+				var temp_cells_html = newAssumptionTop();
+				tr_node.cells[0].innerHTML = temp_cells_html[0];
+				tr_node.cells[1].innerHTML = temp_cells_html[1];
+				getStepNumNode(tr_node.cells[1]).nodeValue = " 1 ";
+				updateSteps(1, 0, "mainproof", 1, 1);
+				return;
+			}
+			// otherwise other assumptions exist, remove this one
+			else {
+				table_node.deleteRow(tr_node.rowIndex);
+				updateSteps(stepnum, -1, "mainproof", stepnum, stepnum);
+				return;
+			}
+		}
+		// otherwise, this is an assumption elsewhere
+		else {
+			var parent_td = table_node.parentNode;
+			var parent_tr = parent_td.parentNode;
+			var parent_table = parent_tr.parentNode.parentNode;
+			var first_step_removed = stepnum;
+			var last_step_removed = getLastStepNum(table_node.id);
+			var steps_removed;
+
+			// whether the subproof is the only one in its containing subproof
+			var only_sub = isOnlyStatement(parent_tr);
+
+			if(only_sub == true) {
+				// remove and replace with a blank line
+ 				steps_removed = last_step_removed - first_step_removed;
+				if(parent_table.id == "mainproof") {
+					var temp_cells_html = newStatementTop();
+					parent_tr.cells[0].innerHTML = temp_cells_html[0];
+					parent_tr.cells[1].innerHTML = temp_cells_html[1];
+				}
+				else {
+					var temp_cells_html = newStatement();
+					parent_tr.cells[0].innerHTML = temp_cells_html[0];
+					parent_tr.cells[1].innerHTML = temp_cells_html[1];
+				}
+				getStepNumNode(parent_tr.cells[1]).nodeValue = " " + first_step_removed + " ";
+				updateSteps(last_step_removed+1, -1 * steps_removed, "mainproof", 
+					first_step_removed, last_step_removed);
+				return;
+			}
+			else {
+				// remove this subproof
+				steps_removed = last_step_removed - first_step_removed + 1;
+				parent_table.deleteRow(parent_tr.rowIndex);
+				updateSteps(last_step_removed+1, -1 * steps_removed, "mainproof", 
+					first_step_removed, last_step_removed);
+				return;
+			}
+		}
+	}
+	else if(row_type == "statement") {
+
+		// whether the statement is the only one in its containing subproof
+		var only_st = isOnlyStatement(tr_node);
+		var steps_removed;
+
+		if(only_st == true) {
+			// remove and replace with a blank statement
+			steps_removed = 0;
+			if(table_node.id == "mainproof") {
+				var temp_cells_html = newStatementTop();
+				tr_node.cells[0].innerHTML = temp_cells_html[0];
+				tr_node.cells[1].innerHTML = temp_cells_html[1];
+			}
+			else {
+				var temp_cells_html = newStatement();
+				tr_node.cells[0].innerHTML = temp_cells_html[0];
+				tr_node.cells[1].innerHTML = temp_cells_html[1];
+			}
+			getStepNumNode(tr_node.cells[1]).nodeValue = " " + stepnum + " ";
+			updateSteps(stepnum, 0, "mainproof", stepnum, stepnum);
+			return;
+		}
+		else {
+			// remove
+			steps_removed = 1;
+			table_node.deleteRow(tr_node.rowIndex);
+			updateSteps(stepnum+1, -1, "mainproof", stepnum, stepnum);
+			return;
+		}
+	}
+	else {
+		debug("error: attempted to remove a non-statement, non-assumption row in removeStatement()");
+		return;
+	}
+}
+
+// adds a statement after the row containing the subproof containing the given statement
+//  or if the statement is an assumption in the main proof, add a statement after the 
+//  assumptions
+// if the statement's containing subproof is the main proof, 
+//  if the statement is an assumption, add a statement after the last assumption on 
+//   that level, i.e. before the first statement
+//  if the statement is not an asusmption, this is an error
+// otherwise, find the subproof containing this statement's containing subproof and
+//  add a new blank statement after the statement's subproof in the higher subproof
+// then change step numbers and justification line numbers as necessary
+// st is the id of a textarea element associated with the statement of each line
+function addStatementAfter(st) {
+	var input_node = document.getElementById(st);
+	var tr_node = input_node.parentNode.parentNode;
+	var table_node = tr_node.parentNode.parentNode;
+	if(table_node.id == "mainproof") {
+		if(getRowType(tr_node) == "assumption") {
+			var newindex = -1;
+			for(var i = tr_node.rowIndex+1;i < table_node.rows.length;i++) {
+				// find the horizontal ruler
+				if(getRowType(table_node.rows[i]) == "ignore") {
+					// the row index of the first statement is the row index of
+					//  the horizontal ruler + 1
+					newindex = i+1;
+					break;
+				}
+			}
+			if(newrow == -1) {
+				debug("error: failed to find hr row in addStatementAfter()");
+				return false;
+			}
+			table_node.insertRow(newindex);
+			var newrow = table_node.rows[newindex];
+			var temp_cells_html = newStatementTop();
+			newrow.insertCell(0);
+			newrow.insertCell(0);
+			newrow.cells[0].innerHTML = temp_cells_html[0];
+			newrow.cells[1].innerHTML = temp_cells_html[1];
+			if(newindex == 1) {
+				// no assumptions
+				debug("error: couldn't find prev assumptions in addStatementAfter()");
+				return false;
+			}
+ 			var prevstepnumnode = getStepNumNode((table_node.rows[newindex-2]).cells[1]);
+			var prevstepnum = parseInt((prevstepnumnode.nodeValue).match("\\d+")[0]);
+			var newstepnum = prevstepnum + 1;
+			var newstepnumnode = getStepNumNode(newrow.cells[1]);
+
+			// update step numbers
+			newstepnumnode.nodeValue = " " + 0 + " ";
+			updateSteps(newstepnum, 1, "mainproof", -1, -1);
+			newstepnumnode.nodeValue = " " + newstepnum + " ";
+
+			return true;
+		}
+		else {
+			debug("error: attempted to add a step after the main proof");
+			return false;
+		}
+	}
+	var parentrow = table_node.parentNode.parentNode;
+	var parenttable = parentrow.parentNode.parentNode;
+	var index = parentrow.rowIndex;
+	parenttable.insertRow(index+1);
+	var newrow = parenttable.rows[index+1];
+	var oldstepnum = getLastStepNum(table_node.id); // step number of step directly before the new step
+
+	if(parenttable.id == "mainproof") {
+		var temp_cells_html = newStatementTop();
+		newrow.insertCell(0);
+		newrow.insertCell(0);
+		newrow.cells[0].innerHTML = temp_cells_html[0];
+		newrow.cells[1].innerHTML = temp_cells_html[1];
+	}
+	else {
+		var temp_cells_html = newStatement();
+		newrow.insertCell(0);
+		newrow.insertCell(0);
+		newrow.cells[0].innerHTML = temp_cells_html[0];
+		newrow.cells[1].innerHTML = temp_cells_html[1];
+	}
+
+	// update step numbers
+	getStepNumNode(newrow.cells[1]).nodeValue = " " + 0 + " ";
+	updateSteps(oldstepnum+1, 1, "mainproof", -1, -1);
+	getStepNumNode(newrow.cells[1]).nodeValue = " " + (oldstepnum+1) + " ";
+	return true;
+}
+
+// finds whether a given row is the only statement in a subproof
+// tr_node is a table row node
+// returns true or false
+function isOnlyStatement(tr_node) {
+	if(getRowType(tr_node) != "statement" && getRowType(tr_node) != "subproof") {
+		debug("error: attempted to run isOnlyStatement on an invalid row type");
+		return;
+	}
+	var table_node = tr_node.parentNode.parentNode;
+	if(table_node.id != "mainproof") {
+		if(table_node.rows.length == 3) {
+			return true;
+		}
+		else {
+			return false;
+		}
+	}
+	var index = tr_node.rowIndex;
+	if(getRowType(table_node.rows[index-1]) == "ignore" && 
+		table_node.rows.length == index+1) {
+		return true;
+	}
+	return false;
+}
+
+// finds whether one step is in the scope of another
+// citedstep is the td element node of the cited step
+// cell is the td element node of the step being evaluated
+// asSubproof is boolean
+//  if true, this function instead finds whether the subproof
+//  containing citedstep is in the scope of cell
+//  this does not check whether citedstep is an assumption
+// returns true or false
+function isInScope(citedstep, cell, asSubproof) {
+	if(getStepNum(citedstep) >= getStepNum(cell))
+		return false;
+	var eval_table_node = cell.parentNode.parentNode.parentNode;
+	var cited_table_node = citedstep.parentNode.parentNode.parentNode;
+	if(asSubproof) {
+		if(cited_table_node.id == eval_table_node.id)
+			return false;
+		cited_table_node = cited_table_node.parentNode.parentNode.parentNode.parentNode;
+	}
+	if(eval_table_node.id == cited_table_node.id)
+		return true;
+	while(eval_table_node.id != "mainproof") {
+		eval_table_node = eval_table_node.parentNode.parentNode.parentNode.parentNode;
+		if(eval_table_node.id == cited_table_node.id)
+			return true;
+	}
+	return false;
+}
+
+// gets a row given a step
+// step is an integer
+// table is a table node
+// returns a table row element (tr) node or null if it is not found
+function getRowByStepNum(step, table) {
+	// search starting from the last row
+	for(var c = table.rows.length-1;c >= 0;c--) {
+		var tr_node = table.rows[c];
+		var row_type = getRowType(tr_node);
+		if(row_type == "statement" || row_type == "assumption") {
+			var rownum = getStepNum(tr_node.cells[1]);
+			if(rownum == step)
+				return tr_node;
+		}
+		else if(row_type == "subproof") {
+			var tr_node2 = getRowByStepNum(step, tr_node.cells[1].firstChild);
+			if(tr_node2 != null)
+				return tr_node2;
+		}
+	}
+
+	return null;
+}
+
+// gets the step number of a line
+// cell is the td element containing each line
+// returns the step number, an integer, or -1 if it is not found
+function getStepNum(cell) {
+	var stepnumnode = getStepNumNode(cell);
+	var stepnumstr = stepnumnode.nodeValue.match("\\d+");
+	if(stepnumstr == null || stepnumstr == "") {
+		debug("error getting step num in getStepNum()");
+		return -1;
+	}
+	var stepnum = parseInt(stepnumstr);
+	if(stepnum < 0)
+		return -1;
+	return stepnum;
+}
+
+// gets the text node associated with the step number of each line
+// cell is the td element containing each line
+function getStepNumNode(cell) {
+	return cell.childNodes[0];
+}
+
+// gets the textarea node associated with the statement textarea of each line
+// cell is the td element containing each line
+function getStatementNode(cell) {
+	return cell.childNodes[9];
+}
+
+// gets the option element associated with the selected rule of each line
+// cell is the td element containing each line
+function getRuleNode(cell) {
+	var select = getSelectNode(cell);
+	return select.options[select.selectedIndex];
+}
+
+// gets the select element associated with the rule of each line
+// cell is the td element containing each line
+function getSelectNode(cell) {
+	return cell.childNodes[11];
+}
+
+// gets the input node associated with the justification line numbers of each line
+// cell is the td element containing each line
+function getLineNumsNode(cell) {
+	return cell.childNodes[13];
+}
+
+// gets the text node associated with the check status field of each line
+// cell is the td element containing each line
+function getCheckStatusNode(cell) {
+	return cell.childNodes[16];
+}
+
+// gets the input node associated with the internal check status field of each line
+// cell is the td element containing each line
+function getInternalCheckStatusNode(cell) {
+	return cell.childNodes[17];
+}
+
+// gets the type of a given row
+//  should be one of "assumption", "statement", "subproof", or "ignore"
+// row is a tr element node
+// returns a string
+function getRowType(row) {
+	return row.cells[0].firstChild.value;
+}
+
+// gets the last step number of a given table
+// tid is the id of a proof table
+function getLastStepNum(tid) {
+	var table = document.getElementById(tid);
+	// if table has two rows, the last step is the first row, an assumption
+	if(table.rows.length == 2) {
+		return parseInt(getStepNumNode(table.rows[0].cells[1]).nodeValue.match("\\d+")[0]);
+	}
+	// otherwise, the last step is contained in the last row, 
+	//  possibly inside other subproof tables
+	else {
+		var lastrow = table.rows[table.rows.length-1];
+		if(getRowType(lastrow) == "statement") {
+			return parseInt(getStepNumNode(lastrow.cells[1]).nodeValue.match("\\d+")[0]);
+		}
+		else {
+			return getLastStepNum(lastrow.cells[1].firstChild.id);
+		}
+	}
+}
+
+// update step numbers, justification line numbers, check status text, 
+//  and internal check status
+// startStep is the lowest old step number that will be updated
+// offset is an integer to be added to each step or justification line 
+//  number; may be negative
+// subproof is the id of a subproof table
+// checkStart is the lowest step number for which justifications should be reset
+//  i.e. the lowest step number that was removed
+// checkEnd is the highest step number for which justifications should be reset
+//  i.e. the highest step number that was removed
+function updateSteps(startStep, offset, subproof, checkStart, checkEnd) {
+	var proof = document.getElementById(subproof);
+	if(proof == null) {
+		debug("error: proof " + subproof + " not found in updateSteps()");
+		return;
+	}
+	for(var c = proof.rows.length-1;c >= 0;c--) {
+		var row = proof.rows[c];
+		var cell = row.cells[1];
+		var row_type = getRowType(row);
+		if(row_type == "subproof") {
+			updateSteps(startStep, offset, row.cells[1].firstChild.id, checkStart, checkEnd);
+		}
+		else if(row_type == "assumption" || row_type == "statement") {
+			stepnum = getStepNumNode(cell);
+			var step = parseInt((stepnum.nodeValue).match("\\d+")[0]);
+			if(step >= startStep) {
+				stepnum.nodeValue = " " + (step + offset) + " ";
+				if(updateJustifications && row_type == "statement") {
+					var linenumsnode = getLineNumsNode(cell);
+					var array = parseLinesTextToArray(linenumsnode.value);
+					if(array != null) {
+						var containsremovedstep = false;
+						for(var i = 0;i < array.length;i++) {
+							if(array[i] >= checkStart && array[i] <= checkEnd) {
+								containsremovedstep = true;
+							}
+							if(array[i] >= startStep) {
+								array[i] += offset;
+							}
+						}
+						var intchknode = getInternalCheckStatusNode(cell);
+						if(containsremovedstep == true) {
+							intchknode.value = "unchecked";
+							var chkstatnode = getCheckStatusNode(cell);
+							chkstatnode.nodeValue = " ";
+						}
+						else {
+							var newlinestext = linesArrayToText(array);
+							linenumsnode.value = newlinestext;
+							if(intchknode.value.match("^valid/") != null) {
+								intchknode.value = "valid/" + newlinestext;
+							}
+						}
+					}
+				}
+			}
+			else {
+				return;
+			}
+		}
+	}
+}
+
+// gets a statement's type
+// st_node is a reference to a statement node, an array
+// returns the type of st_node
+function getStmtType(st_node) {
+	return st_node[0];
+}
+
+// sets a statement's type
+// st_node is a reference to a statement node, an array
+// st_type is a statement type
+function setStmtType(st_node, st_type) {
+	st_node[0] = st_type;
+}
+
+// gets a statement's value
+// st_node is a reference to a statement node, an array
+// returns the value of st_node
+function getStmtVal(st_node) {
+	return st_node[1];
+}
+
+// sets a statement's value
+// st_node is a reference to a statement node, an array
+// st_val is a statement value
+function setStmtVal(st_node, st_val) {
+	st_node[1] = st_val;
+}
+
+// gets a statement's children
+// st_node is a reference to a statement node, an array
+// returns a reference to a child list, an array of references 
+//  to statement nodes
+function getStmtChildren(st_node) {
+	return st_node[2];
+}
+
+// adds a child to a statement node
+// st_node is a reference to a statement node, an array
+// child_node is a reference to a statement node, an array
+function addStmtChild(st_node, child_node) {
+	var children = st_node[2];
+	if(children != null)
+		children[children.length] = child_node;
+	else {
+		st_node[2] = new Array(1);
+		st_node[2][0] = child_node;
+	}
+}
+
+// creates a statement node
+// returns an array of length 3, initialized to null
+function newStatementNode() {
+	var arr = new Array(3);
+	for (var i = 0;i < 3;i++)
+		arr[i] = null;
+	return arr;
+}
+
+// gets the statement to which a variable is bound
+// var1 is a variable assignment
+// returns a reference to a statement node
+function getStmtFromVar(var1) {
+	if(var1 == null)
+		return null;
+	return var1[2];
+}
+
+// binds a variable
+// var1 is a variable assignment
+// st_node is a reference to a statement node
+function bindVarStmt(var1, st_node) {
+	if(var1 == null) {
+		debug("error: var1 is null in bindVarStmt()");
+		return;
+	}
+	if(isVarBound(var1)) {
+		debug("error: attempted to bind bound var in bindVarStmt()");
+		return;
+	}
+	var1[2] = st_node;
+	var1[1] = true;
+}
+
+// finds whether a variable is bound
+// var1 is a reference to a variable assignment
+// returns true or false, or null if the input is invalid
+function isVarBound(var1) {
+	if(var1 == null)
+		return null;
+	return var1[1];
+}
+
+// gets a variable's identifier
+// var1 is a variable assignment
+// returns the variable's identifier, string
+function getVarId(var1) {
+	if(var1 == null)
+		return null;
+	return var1[0];
+}
+
+// sets a variable's identifier
+// var1 is a variable assignment
+// id is a variable identifier, a string
+function setVarId(var1, id) {
+	if(var1 == null) {
+		debug("error: var1 is null in setVarId()");
+		return;
+	}
+	var1[0] = id;
+}
+
+// gets a variable assignment from an environment
+// env is an environment, an array
+// var_id is a variable identifier, a string
+// returns a reference to a variable assignment or null if 
+//  it can't be found
+function getVarFromEnv(env, var_id) {
+	if(env == null || var_id == null)
+		return null;
+	for(var i = 0;i < env.length;i++) {
+		if(getVarId(env[i]) == var_id) {
+			return env[i];
+		}
+	}
+	return null;
+}
+
+// adds a variable assignment to an environment
+// env is an environment
+// var1 is a reference to a variable assignment, an array
+function addVarToEnv(env, var1) {
+	if(env == null) {
+		debug("error: env is null in addVarToEnv()");
+		return;
+	}
+	env[env.length] = var1;
+}
+
+// creates a variable assignment
+// returns a reference to an array
+function newVar() {
+	var var1 = new Array(3);
+	var1[0] = null;
+	var1[1] = false;
+	var1[2] = null;
+	return var1;
+}
+
+// creates an environment
+// returns an array
+function newVarEnv() {
+	return new Array(0);
+}
+
+// clones a variable assignment
+// var1 is a variable assignment
+// returns a variable assignment
+function cloneVar(var1) {
+	if(var1 == null) {
+		debug("error: var1 is null in cloneVar()");
+		return null;
+	}
+	var newvar = newVar();
+	newvar[0] = var1[0];
+	newvar[1] = var1[1];
+	newvar[2] = var1[2];
+	return newvar;
+}
+
+// clones a variable environment
+// env is a variable environment
+// returns a variable environment
+function cloneVarEnv(env) {
+	if(env == null) {
+		debug("error: env is null in cloneVarEnv()");
+		return null;
+	}
+	var newenv = new Array(env.length);
+	for(var i = 0;i < newenv.length;i++) {
+		newenv[i] = cloneVar(env[i]);
+	}
+	return newenv;
+}
+
+// gets a compiled rule given an internal rule identifier
+// returns a reference to a compiled rule (array)
+// returns null if not found
+function getRuleByIdentifier(id) {
+	if(compiled_rules == null) {
+		debug("error: compiled_rules is null in getRuleByIdentifier()");
+		return null;
+	}
+	for(var c = 0;c < compiled_rules.length;c++) {
+		if(id == compiled_rules[c][1])
+			return compiled_rules[c];
+	}
+	return null;
+}
+
+// compiles an array of source rules
+// returns an array of compiled rules or null if they can't be compiled
+function compileRules(source) {
+	if(source == null) 
+		return null;
+	var c_rules = new Array();
+	for(var c = 0;c < source.length;c++) {
+		c_rules[c] = new Array();
+		c_rules[c][0] = source[c][0];
+		c_rules[c][1] = source[c][1];
+		var src_rule_forms = source[c][2];
+		c_rules[c][3] = new Array();
+		if(src_rule_forms.length > 0 && src_rule_forms[0].match("<=>") != null) {
+			c_rules[c][2] = RULE_TYPE_EQUIV;
+			for(var forms_itr = 0;forms_itr < src_rule_forms.length;forms_itr++) {
+				var src_rule_form = src_rule_forms[forms_itr];
+				var stmts = src_rule_form.split("<=>");
+				if(stmts.length != 2 || stmts[0] == null || stmts[1] == null) {
+					debug("error: unable to compile rule " + source[c][0]);
+					debug("   could not match equiv form to \"stmt <=> stmt\"");
+					return null;
+				}
+				var stmt_nodes = new Array();
+				stmt_nodes[0] = parseStmtWrapper(stmts[0], true);
+				stmt_nodes[1] = parseStmtWrapper(stmts[1], true);
+				if(stmt_nodes[0] == null || stmt_nodes[1] == null) {
+					debug("error: unable to compile rule " + source[c][0]);
+					debug("   could not parse LHS or RHS of equiv");
+					return null;
+				}
+				c_rules[c][3][forms_itr] = stmt_nodes;
+			}
+		}
+		else if(src_rule_forms.length > 0 && src_rule_forms[0].match("|-") != null) {
+			c_rules[c][2] = RULE_TYPE_INFER;
+			for(var forms_itr = 0;forms_itr < src_rule_forms.length;forms_itr++) {
+				var src_rule_form = src_rule_forms[forms_itr];
+				var sides = src_rule_form.split("|-");
+				if(sides.length != 2 || sides[0] == null || sides[1] == null) {
+					debug("error: unable to compile rule " + source[c][0]);
+					debug("   could not match infer form to \"{stmts}|-stmt\"");
+					return null;
+				}
+				sides[0] = trim(sides[0]);
+				if(sides[0].charAt(0) != "{" || sides[0].charAt(sides[0].length-1) != "}") {
+					debug("error: unable to compile rule " + source[c][0]);
+					debug("   could not match LHS of infer to \"{stmts}\"");
+					return null;
+				}
+				sides[0] = sides[0].substr(1, sides[0].length-2); // remove {}'s
+				var left_stmt_strs = sides[0].split(",");
+				var left_stmt_nodes = new Array();
+				if(left_stmt_strs.length != 1 || removeWS(left_stmt_strs[0]) != "") {
+					for(var lhs_itr = 0;lhs_itr < left_stmt_strs.length;lhs_itr++) {
+						left_stmt_nodes[lhs_itr] = parseStmtWrapper(left_stmt_strs[lhs_itr], true);
+						if(left_stmt_nodes[lhs_itr] == null) {
+							debug("error: unable to compile rule " + source[c][0]);
+							debug("   could not parse statement " + left_stmt_strs[lhs_itr]);
+							return null;
+						}
+					}
+				}
+				var right_stmt_node = parseStmtWrapper(sides[1], true);
+				c_rules[c][3][forms_itr] = new Array(2);
+				c_rules[c][3][forms_itr][0] = left_stmt_nodes;
+				c_rules[c][3][forms_itr][1] = right_stmt_node;
+			}
+		}
+		else {
+			// CP rule can't be compiled, ignore it
+			if(source[c][1] != "cp") {
+				// for all other rules, this is an error
+				debug("error: unable to compile rule " + source[c][0]);
+				debug("   could not determine whether the rule is an equiv or infer");
+				return null;
+			}
+		}
+	}
+	return c_rules;
+}
+
+// converts a statement tree to propositional logic/text
+// st_node is a reference to a statement node, an array
+// parens is a boolean, for whether there should be parentheses on the top level
+// returns a string
+function stmtTreeToText(st_node, parens) {
+	return stmtTreeToTextWithEnv(st_node, parens, null);
+}
+
+// converts a statement tree to propositional logic/text using variables
+// st_node is a reference to a statement node, an array
+// parens is a boolean, for whether there should be parentheses on the top level
+// env is a variable environment
+// returns a string
+function stmtTreeToTextWithEnv(st_node, parens, env) {
+	if(st_node == null)
+		return "";
+	var type = getStmtType(st_node);
+	var childlist = getStmtChildren(st_node);
+	if(type == STMT_TYPE_OP) {
+		var ret = stmtTreeToTextWithEnv(childlist[0], true, env);
+		var st_val = getStmtVal(st_node);
+		if(st_val == STMT_VAL_NEG) {
+			ret = "~" + ret;
+		}
+		else if(st_val == STMT_VAL_CONJ) {
+			for(var i = 1;i < childlist.length;i++)
+				ret = ret + " /\\ " + stmtTreeToTextWithEnv(childlist[i], true, env);
+			if(parens)
+				ret = "(" + ret + ")";
+		}
+		else if(st_val == STMT_VAL_DISJ) {
+			for(var i = 1;i < childlist.length;i++)
+				ret = ret + " \\/ " + stmtTreeToTextWithEnv(childlist[i], true, env);
+			if(parens)
+				ret = "(" + ret + ")";
+		}
+		else if(st_val == STMT_VAL_COND) {
+			ret = ret + " -> " + stmtTreeToTextWithEnv(childlist[1], true, env);
+			if(parens)
+				ret = "(" + ret + ")";
+		}
+		else if(st_val == STMT_VAL_BICOND) {
+			ret = ret + " <-> " + stmtTreeToTextWithEnv(childlist[1], true, env);
+			if(parens)
+				ret = "(" + ret + ")";
+		}
+		else {
+			debug("error: invalid statement value in stmtTreeToTextWithEnv()");
+			return null;
+		}
+		return ret;
+	}
+	else if(type == STMT_TYPE_ATOM) {
+		return getStmtVal(st_node);
+	}
+	else if(type == STMT_TYPE_VAR) {
+		var st_node2 = getStmtFromVar(getVarFromEnv(env, getStmtVal(st_node)));
+		if(st_node2 == null)
+			return getStmtVal(st_node);
+		return stmtTreeToTextWithEnv(st_node2, parens, env);
+	}
+	else {
+		debug("error: invalid statement type for st_node in stmtTreeToTextWithEnv()");
+		return null;
+	}
+}
+
+// parses the input text of the line nums field
+// returns an array of integers/line numbers
+// returns null if the text could not be parsed correctly
+function parseLinesTextToArray(str) {
+	if(str == null || typeof(str) != "string") {
+		return null;
+	}
+	var array = str.split(",");
+	if(array == null || array.length == 0) {
+		return null;
+	}
+	for(var c = 0;c < array.length;c++) {
+		var strnum = array[c].match("\\d+");
+		if(strnum == null || strnum == "") {
+			if(c == array.length-1) {
+				array.pop();
+				if(array.length != 0)
+					return array;
+				else
+					return null;
+			}
+			else {
+				return null;
+			}
+		}
+		array[c] = parseInt(strnum);
+	}
+	if(array.length != 0)
+		return array;
+	else
+		return null;
+}
+
+// converts an array of line numbers to a string
+// returns a string in the form "x, y, ..."
+function linesArrayToText(array) {
+	if(array.length == 0) {
+		return "";
+	}
+	var text = array[0];
+	for(var i = 1;i < array.length;i++) {
+		text = text + ", " + array[i];
+	}
+	return text;
+}
+
+// removes leading and trailing whitespace
+// str is a string
+// returns a string
+function trim(str) {
+	return str.replace(/^\s+|\s+$/g, "");
+}
+
+// removes all whitespace
+// str is a string
+// returns a string without whitespace
+function removeWS(str) {
+	return str.replace(/\s+/g, "");
+}
+
+// finds the index of the closing parethesis matching the 
+//  first character of a string (an opening parenthesis)
+// str is a string
+// returns the index of the closing parenthesis or -1 if 
+//  not found
+function findClosingParen(str) {
+	if(str == null)
+		return -1;
+	if(str.length < 2)
+		return -1;
+	if(str.charAt(0) != '(')
+		return -1;
+	var index;
+	var num_open = 0; // number of opening parentheses less 
+							//  the number of closing parentheses
+	for(index = 0;index < str.length;index++) {
+		var c = str.charAt(index);
+		if(c == '(') {
+			num_open++;
+		}
+		else if(c == ')') {
+			num_open--;
+			if(num_open == 0) {
+				return index;
+			}
+		}
+	}
+	return -1;
+}
+
+// parses a logical statement/sentence
+// wrapper for parseStmt(), also checks for whitespace-related parse errors
+// str is a string containing the statement/sentence
+// as_rule is a boolean, for whether word strings should be treated as variables
+//  (otherwise treat them as atomic propositions)
+// returns a statement tree, which is a reference to a statement node
+//  or null if the string could not be parsed
+function parseStmtWrapper(str, as_rule) {
+	if(str.match("[a-zA-Z]\\s+[a-zA-Z]") != null) {
+		return null;
+	}
+	return parseStmt(removeWS(str), as_rule);
+}
+
+// parses a logical statement/sentence
+// assumes that all whitespace is already removed
+// str is a string containing the statement/sentence
+// as_rule is a boolean, for whether word strings should be treated as variables
+//  (otherwise treat them as atomic propositions)
+// returns a statement tree, which is a reference to a statement node
+//  or null if the string could not be parsed
+function parseStmt(str, as_rule) {
+	var sen = str;
+	if(sen == null)
+		return null;
+	if(sen.length == 0)
+		return null;
+	// determine whether the entire string is enclosed by parentheses
+	if(findClosingParen(sen) == sen.length-1) {
+		// remove the pair of parentheses and recursively call this function
+		var newstr = sen.substring(1, sen.length-1);
+		return parseStmt(newstr, as_rule);
+	}
+	var operands = new Array(0); // operands of binary operators
+	var operators = new Array(0); // binary operators
+
+	while(sen.length != 0) {
+		var operand = ""; // an operand, e.g. a disjunct or literal
+		// match negations
+		var matches = sen.match("^~+");
+		var negstr; 
+		if(matches != null) {
+			negstr = matches[0];
+			operand = operand + negstr;
+			sen = sen.substr(negstr.length);
+		}
+		if(sen.length == 0)
+			return null;
+		if(sen.charAt(0) == '(') {
+			// match operand as a sentence in parentheses
+			var endindex = findClosingParen(sen);
+			if(endindex < 0) {
+				return null;
+			}
+			operand = operand + sen.substring(0, endindex+1);
+			sen = sen.substr(endindex+1);
+		}
+		else if((sen.charAt(0)).match("[a-zA-Z]") != null) {
+			// match operand as a word (string of letters)
+			var wordstr = sen.match("^[a-zA-Z]+")[0];
+			operand = operand + wordstr;
+			sen = sen.substring(wordstr.length);
+		}
+		else {
+			return null;
+		}
+		// add the new operand to the list
+		operands[operands.length] = operand;
+
+		if(sen.length != 0) {
+			// attempt to match an operator
+			var operator;
+			// match conjunction
+			if(sen.match("^/\\\\") != null)
+				operator = "/\\";
+			// match disjunction
+			else if(sen.match("^\\\\/") != null)
+				operator = "\\/";
+			// match conditional
+			else if(sen.match("^->") != null)
+				operator = "->";
+			// match biconditional
+			else if(sen.match("^<->") != null)
+				operator = "<->";
+			// match not an operator - error
+			else
+				return null;
+
+			sen = sen.substring(operator.length);
+			// add the new operator to the list
+			operators[operators.length] = operator;
+
+			if(sen.length == 0) {
+				return null;
+			}
+		}
+	}
+
+	if(operators.length >= operands.length) {
+		return null;
+	}
+
+	if(operators.length == 0) {
+		// the only operand is a word
+		if(operands[0].match("^[a-zA-Z]+$") != null) {
+			var new_node = newStatementNode();
+			if(as_rule)
+				setStmtType(new_node, STMT_TYPE_VAR);
+			else
+				setStmtType(new_node, STMT_TYPE_ATOM);
+			setStmtVal(new_node, operands[0]);
+			return new_node;
+		}
+		// the only operand is a negation
+		else if(operands[0].charAt(0) == "~") {
+			var new_stmt = operands[0].substring(1);
+			var new_node = newStatementNode();
+			setStmtType(new_node, STMT_TYPE_OP);
+			setStmtVal(new_node, STMT_VAL_NEG);
+			var child_node = parseStmt(new_stmt, as_rule);
+			if(child_node == null)
+				return null;
+			addStmtChild(new_node, child_node);
+			return new_node;
+		}
+		// the only operand is a parenthesized sentence
+		else {
+			return parseStmt(operands[0], as_rule);
+		}
+	}
+	// there is at least one binary operator
+	else {
+		if(operators.length > 1) {
+			// implication, biconditional are not generalizable
+			if(operators[0] == "->" || operators[0] == "<->")
+				return null;
+			// generalized statement - all operators should be the same
+			for(var i = 1;i < operators.length;i++) {
+				if(operators[i-1] != operators[i]) {
+					return null;
+				}
+			}
+		}
+		// create a statement node
+		var new_node = newStatementNode();
+		setStmtType(new_node, STMT_TYPE_OP);
+		if(operators[0] == "/\\")
+			setStmtVal(new_node, STMT_VAL_CONJ);
+		else if(operators[0] == "\\/")
+			setStmtVal(new_node, STMT_VAL_DISJ);
+		else if(operators[0] == "->")
+			setStmtVal(new_node, STMT_VAL_COND);
+		else if(operators[0] == "<->")
+			setStmtVal(new_node, STMT_VAL_BICOND);
+		else {
+			debug("error: found an invalid operator in operators[] in parseStmt()");
+			return null;
+		}
+		// add children
+		for(var i = 0;i < operands.length;i++) {
+			var child_node = parseStmt(operands[i], as_rule);
+			if(child_node == null)
+				return null;
+			addStmtChild(new_node, child_node);
+		}
+		return new_node;
+	}
+}
+
+// parses a list of statements, separated by commas
+// str is a string
+function parseStmtList(str) {
+	var array = str.split(",");
+	for(var i = 0;i < array.length;i++) {
+		array[i] = removeWS(array[i]);
+		if(array[i] == "") {
+			debug("error: extracted empty statement in statement list " + str + " in parseStmtList");
+		}
+	}
+	return array;
+}
+
+// updates the check status and internal check status fields
+// if the current internal check status states that the statement is
+//  properly justified and the line numbers have changed, then reset the
+//  two fields
+// st is a string representing the id of a statement textarea element
+function updateJustifications(st)
+{
+	var cell = document.getElementById(st).parentNode;
+	var intchknode = getInternalCheckStatusNode(cell);
+	var str = intchknode.value;
+	// if line was checked as justified/valid
+	if(str.length > 5 && str.match("^valid/") != null) {
+		var oldlinestext = str.substring(6);
+		// if line numbers have changed
+		if(oldlinestext != getLineNumsNode(cell).value) {
+			getCheckStatusNode(cell).nodeValue = " ";
+			intchknode.value = "unchecked";
+		}
+	}
+}
+
+// changes the given rule select element's selected rule
+// selectElem is a select node for rules
+// ruleId is an internal rule identifier, a string
+function setRule(selectElem, ruleId) {
+	for(var i = 0;i < selectElem.length;i++) {
+		if(selectElem.options[i].value == ruleId) {
+			selectElem.selectedIndex = i;
+			break;
+		}
+	}
+}
+
+// handles shortcuts for connectives and updates a statement textarea value
+// st is a string representing the id of a statement textarea element
+function updateConnectives(st)
+{
+	// Cursor placement only works properly for Firefox and Opera
+
+	var elem_input = document.getElementById(st)
+	var lastStartPos;
+	var lastEndPos;
+
+	if(lastFocus != null) {
+		lastStartPos = lastFocus.selectionStart;
+		lastEndPos = lastFocus.selectionEnd;
+	}
+
+	while(elem_input.value.indexOf("&") != -1) {
+   	elem_input.value = elem_input.value.replace("&", "/\\")
+		if(lastFocus != null) {
+			lastFocus.selectionStart = lastStartPos + 1;
+			lastFocus.selectionEnd = lastEndPos + 1;
+		}
+	}
+	while(elem_input.value.indexOf("|") != -1) {
+	   elem_input.value = elem_input.value.replace("|", "\\/")
+		if(lastFocus != null) {
+			lastFocus.selectionStart = lastStartPos + 1;
+			lastFocus.selectionEnd = lastEndPos + 1;
+		}
+	}
+	while(elem_input.value.indexOf("$") != -1) {
+	   elem_input.value = elem_input.value.replace("$", "->")
+		if(lastFocus != null) {
+			lastFocus.selectionStart = lastStartPos + 1;
+			lastFocus.selectionEnd = lastEndPos + 1;
+		}
+	}
+	while(elem_input.value.indexOf("%") != -1) {
+	   elem_input.value = elem_input.value.replace("%", "<->")
+		if(lastFocus != null) {
+			lastFocus.selectionStart = lastStartPos + 2;
+			lastFocus.selectionEnd = lastEndPos + 2;
+		}
+	}
+	while(elem_input.value.indexOf("!") != -1) {
+	   elem_input.value = elem_input.value.replace("!", "~")
+		if(lastFocus != null) {
+			lastFocus.selectionStart = lastStartPos;
+			lastFocus.selectionEnd = lastEndPos;
+		}
+	}
+}
+
+// tree1 is a statement/parse tree
+// tree2 is another statement/parse tree
+// env is a variable environment
+// returns MATCH_RESULT_EXACT, MATCH_RESULT_FAILED, 
+//  or MATCH_RESULT_FAILED_GEN
+function matchTreesExact(tree1, tree2, env) {
+	var tree1_type = getStmtType(tree1);
+	var tree2_type = getStmtType(tree2);
+	if(tree1_type == STMT_TYPE_VAR) {
+		var var1_id = getStmtVal(tree1);
+		var var1 = getVarFromEnv(env, var1_id);
+		if(var1 == null) {
+			var1 = newVar();
+			setVarId(var1, var1_id);
+			addVarToEnv(env, var1);
+		}
+		if(isVarBound(var1) == false) {
+			bindVarStmt(var1, tree2);
+			return MATCH_RESULT_EXACT;
+		}
+		else {
+			return matchTreesExact(getStmtFromVar(var1), tree2, env);
+		}
+	}
+	else if(tree2_type == STMT_TYPE_VAR) {
+		var var2_id = getStmtVal(tree2);
+		var var2 = getVarFromEnv(env, var2_id);
+		if(var2 == null) {
+			var2 = newVar();
+			setVarId(var2, var2_id);
+			addVarToEnv(env, var2);
+		}
+		if(isVarBound(var2) == false) {
+			bindVarStmt(var2, tree1);
+			return MATCH_RESULT_EXACT;
+		}
+		else {
+			return matchTreesExact(tree1, getStmtFromVar(var2), env);
+		}
+	}
+	else if(tree1_type == STMT_TYPE_OP && tree2_type == STMT_TYPE_OP) {
+		if(getStmtVal(tree1) != getStmtVal(tree2)) {
+			return MATCH_RESULT_FAILED;
+		}
+		var tree1_children = getStmtChildren(tree1);
+		var tree2_children = getStmtChildren(tree2);
+		if(tree1_children.length != tree2_children.length) {
+			// if this fails and there is an unbound variable, signal it
+			//  so other functions can handle the generalized statement
+			// otherwise, return normal failure
+			for(var i = 0;i < tree1_children.length;i++) {
+				if(getStmtType(tree1_children[i]) == STMT_TYPE_VAR) {
+					var varid = getStmtVal(tree1_children[i]);
+					var varassign = getVarFromEnv(env, varid);
+					if(varassign == null || !isVarBound(varassign))
+						return MATCH_RESULT_FAILED_GEN;
+				}
+			}
+			for(var i = 0;i < tree2_children.length;i++) {
+				if(getStmtType(tree2_children[i]) == STMT_TYPE_VAR) {
+					var varid = getStmtVal(tree2_children[i]);
+					var varassign = getVarFromEnv(env, varid);
+					if(varassign == null || !isVarBound(varassign))
+						return MATCH_RESULT_FAILED_GEN;
+				}
+			}
+			return MATCH_RESULT_FAILED;
+		}
+		for(var i = 0;i < tree1_children.length;i++) {
+			var result = matchTreesExact(tree1_children[i], tree2_children[i], env);
+			if(result == MATCH_RESULT_FAILED_GEN || 
+				result == MATCH_RESULT_FAILED) {
+				return result;
+			}
+		}
+		return MATCH_RESULT_EXACT;
+	}
+	else if(tree1_type == STMT_TYPE_ATOM && tree2_type == STMT_TYPE_ATOM) {
+		if(getStmtVal(tree1) == getStmtVal(tree2))
+			return MATCH_RESULT_EXACT;
+		return MATCH_RESULT_FAILED;
+	}
+	else {
+		return MATCH_RESULT_FAILED;
+	}
+}
+
+// attempts to match left_trees and right_tree using the 
+//  given rule trees (as an inference rule)
+// matches at the top level and contains special cases for 
+//  handling generalized statements
+// handles one rule form and matches in one direction, but 
+//  permutes LHS cited step-to-LHS rule mappings
+// left_trees is an array of references to statement/parse trees
+// right_tree is the statement/parse tree of the potentially 
+//  entailed sentence or null if this function should generate one
+// rule_id is an internal rule identifier
+// env is a variable environment
+// rule_left is an array of statement/parse trees (e.g. to match cited statements)
+// rule_right is a statement/parse tree (to match result statements)
+// result_stmt is an array used for returning automatically generated statements
+//  should have a length of 1
+// result_env is an array used for returning the resulting environment
+//  should have a length of 1
+// returns MATCH_RESULT_APPLIED or MATCH_RESULT_FAILED
+function matchTreesInfer(left_trees, right_tree, env, rule_id, rule_left, rule_right, result_stmt, result_env) {
+	// special cases - gen. simp. and CP
+	if(rule_id == "simp") {
+		var left = left_trees[0];
+		var left_type = getStmtType(left);
+		var left_val = getStmtVal(left);
+		// automatically generate a statement if possible
+		if(right_tree == null) {
+			if(left_type == STMT_TYPE_OP && left_val == STMT_VAL_CONJ) {
+				result_stmt[0] = getStmtChildren(left)[0];
+				result_env[0] = null;
+				return MATCH_RESULT_APPLIED;
+			}
+			result_stmt[0] = null;
+			return MATCH_RESULT_FAILED;
+		}
+		var right = right_tree;
+		var right_type = getStmtType(right);
+		var right_val = getStmtVal(right);
+		if(left_type != STMT_TYPE_OP || left_val != STMT_VAL_CONJ) {
+			return MATCH_RESULT_FAILED;
+		}
+		// gen. simp. is valid if the result statement is a conjunct 
+		//  of the cited statement
+		var conjuncts = getStmtChildren(left);
+		for(var i = 0;i < conjuncts.length;i++) {
+			var result = matchTreesExact(conjuncts[i], right, null);
+			if(result == MATCH_RESULT_EXACT)
+				return MATCH_RESULT_APPLIED;
+		}
+		// gen. simp. is also valid if the result statement is a 
+		//  substring of the cited statement
+		if(right_type != STMT_TYPE_OP || right_val != STMT_VAL_CONJ) {
+			return MATCH_RESULT_FAILED;
+		}
+		var result_conjuncts = getStmtChildren(right);
+		if(conjuncts.length <= result_conjuncts.length)
+			return MATCH_RESULT_FAILED;
+		// find whether result_conjuncts is a substring of conjuncts
+		for(var c_i = 0;c_i < (conjuncts.length - result_conjuncts.length + 1);c_i++) {
+			var found_fail = false;
+			for(var res_i = 0;res_i < result_conjuncts.length && !found_fail;res_i++) {
+				var result = matchTreesExact(conjuncts[c_i + res_i], 
+					result_conjuncts[res_i], null);
+				if(result == MATCH_RESULT_FAILED || result == MATCH_RESULT_FAILED_GEN) {
+					found_fail = true;
+				}
+			}
+			if(!found_fail) {
+				return MATCH_RESULT_APPLIED;
+			}
+		}
+		return MATCH_RESULT_FAILED;
+	}
+	else if(rule_id == "cp") {
+		var env1 = newVarEnv();
+		// assumes first rule in rule_left is the assumption, 
+		//  second is a statement in that subproof, similar for left_trees
+		// these two LHS matches should always succeed
+		matchTreesExact(left_trees[0], rule_left[0], env1);
+		matchTreesExact(left_trees[1], rule_left[1], env1);
+		// automatically generate a statement
+		if(right_tree == null) {
+			result_stmt[0] = rule_right;
+			result_env[0] = env1;
+			return MATCH_RESULT_APPLIED;
+		}
+		// match RHS
+		var result = matchTreesExact(right_tree, rule_right, env1);
+		if(result == MATCH_RESULT_EXACT)
+			return MATCH_RESULT_APPLIED;
+		if(result == MATCH_RESULT_FAILED_GEN)
+			return MATCH_RESULT_FAILED;
+		return result;
+	}
+
+	// general cases for inference or equivalence as inference
+	var has_gen = false; // whether there is a generalized statement that 
+								//  needs special cases to be handled
+	var perms = 1;
+	// go through permutations of matching rule_left statements and 
+	//  cited statements - assumes there are at most two each
+
+	// no left hand statements
+	if(left_trees.length == 0 && rule_left.length == 0) {
+		perms = 0;
+		if(right_tree == null)
+			// can't automatically generate a statement
+			return MATCH_RESULT_FAILED;
+		var env1 = newVarEnv();
+		var result = matchTreesExact(right_tree, rule_right, env1);
+		if(result == MATCH_RESULT_FAILED)
+			return MATCH_RESULT_FAILED;
+ 		else if(result == MATCH_RESULT_FAILED_GEN)
+			has_gen = true;
+		else if(result == MATCH_RESULT_EXACT) {
+			result_stmt[0] = rule_right;
+			result_env[0] = env1;
+			return MATCH_RESULT_APPLIED;
+		}
+	}
+
+	// there are 1 or more left hand statements
+	if(left_trees.length > 1)
+		perms = 2;
+	for(var i = 0;i < perms;i++) {
+		var cited1 = left_trees[0];
+		var cited2;
+		if(perms == 2)
+			cited2 = left_trees[1];
+		if(i == 1) {
+			cited1 = left_trees[1];
+ 			cited2 = left_trees[0];
+		}
+		var env1 = newVarEnv();
+		var foundfail = false;
+		var result;
+		result = matchTreesExact(cited1, rule_left[0], env1);
+		if(result == MATCH_RESULT_FAILED_GEN) {
+			has_gen = true;
+			foundfail = true;
+		}
+		else if(result == MATCH_RESULT_FAILED) {
+			foundfail = true;
+		}
+		if(left_trees.length > 1 && !foundfail) {
+			result = matchTreesExact(cited2, rule_left[1], env1);
+			if(result == MATCH_RESULT_FAILED_GEN) {
+				has_gen = true;
+				foundfail = true;
+			}
+			else if(result == MATCH_RESULT_FAILED) {
+				foundfail = true;
+			}
+		}
+		// if all LHS matched - otherwise, continue
+		if(!foundfail) {
+			// automatically generate a sentence
+			if(right_tree == null) {
+				result_stmt[0] = rule_right;
+				result_env[0] = env1;
+				return MATCH_RESULT_APPLIED;
+			}
+			var result = matchTreesExact(right_tree, rule_right, env1);
+			if(result == MATCH_RESULT_APPLIED) {
+				result_env[0] = env1;
+				return result;
+			}
+			if(result == MATCH_RESULT_FAILED_GEN) {
+				has_gen = true;
+			}
+		}
+	}
+	// try matching again - but with the right side first
+	for(var i = 0;i < perms;i++) {
+		var cited1 = left_trees[0];
+		var cited2;
+		if(perms == 2)
+			cited2 = left_trees[1];
+		if(i == 1) {
+			cited1 = left_trees[1];
+ 			cited2 = left_trees[0];
+		}
+		var env1 = newVarEnv();
+		// automatically generate a sentence
+		if(right_tree == null) {
+			result_stmt[0] = rule_right;
+			var result;
+			var failfound = false;
+			for(var j = 0;j < left_trees.length;j++) {
+				result = matchTreesExact(left_trees[j], rule_left[j], env1);
+				if(result == MATCH_RESULT_FAILED || result == MATCH_RESULT_FAILED_GEN)
+					failfound = true;
+			}
+			if(!failfound) {
+				result_env[0] = env1;
+				return MATCH_RESULT_APPLIED;
+			}
+			if(i == 0)
+				continue;
+			else
+				return MATCH_RESULT_FAILED;
+		}
+		var result = matchTreesExact(right_tree, rule_right, env1);
+		if(result == MATCH_RESULT_FAILED_GEN) {
+			has_gen = true;
+		}
+		if(result == MATCH_RESULT_EXACT) {
+			var foundfail = false;
+			result = matchTreesExact(cited1, rule_left[0], env1);
+			if(result == MATCH_RESULT_FAILED_GEN) {
+				has_gen = true;
+				foundfail = true;
+			}
+			else if(result == MATCH_RESULT_FAILED) {
+				foundfail = true;
+			}
+			if(left_trees.length > 1) {
+				result = matchTreesExact(cited2, rule_left[1], env1);
+				if(result == MATCH_RESULT_FAILED_GEN) {
+					has_gen = true;
+					foundfail = true;
+				}
+				else if(result == MATCH_RESULT_FAILED) {
+					foundfail = true;
+				}
+			}
+			// if all LHS matched
+			if(!foundfail) {
+				result_env[0] = env1;
+				return MATCH_RESULT_APPLIED;
+			}
+		}
+	}
+
+	// matchTreesExact() has failed because of some generalized statements
+	// retry using special cases
+
+	if(right_tree == null) {
+		// don't generate a sentence when there are generalized statements
+		return MATCH_RESULT_FAILED;
+	}
+
+	// rules with two cited steps
+	if(left_trees.length > 1) {
+		// try permutations of the cited steps
+		for(var i = 0;i < 2;i++) {
+			var cited1 = left_trees[0];
+			var cited2 = left_trees[1];
+			if(i == 1) {
+				cited1 = left_trees[1];
+				cited2 = left_trees[0];
+			}
+			if(rule_id == "conj") {
+				// conjunction with generalized statements is valid if 
+				//  1. one cited statement and the conjuncts of the other
+				//  form the resulting statement
+				//  2. the cited statements are a partitioning of the 
+				//  resulting statement
+
+				var phi_conjuncts;
+				var psi_conjuncts;
+				var right_conjuncts;
+				if(getStmtType(right_tree) != STMT_TYPE_OP || 
+					getStmtVal(right_tree) != STMT_VAL_CONJ) {
+					return MATCH_RESULT_FAILED;
+				}
+				right_conjuncts = getStmtChildren(right_tree);
+				if(right_conjuncts == null)
+					return MATCH_RESULT_FAILED;
+
+				// case 1 - result is 
+				// cited1 /\ conj_cited2_1 /\ conj_cited2_2 /\ ...
+				// or conj_cited2_1 /\ conj_cited2_2 /\ ... /\ cited1
+
+				if(getStmtType(cited2) != STMT_TYPE_OP || 
+					getStmtVal(cited2) != STMT_VAL_CONJ) {
+					continue; // i.e. try the other permutation of the cited steps
+				}
+
+				phi_conjuncts = new Array(1);
+				phi_conjuncts[0] = cited1;
+				psi_conjuncts = getStmtChildren(cited2);
+				if(phi_conjuncts == null)
+					return MATCH_RESULT_FAILED;
+
+				if(phi_conjuncts.length + psi_conjuncts.length == right_tree.length) {
+					// try matching with cited1 at the beginning
+					var foundfailed = false;
+					var result = matchTreesExact(phi_conjuncts[0], right_conjuncts[0], null);
+					if(result != MATCH_RESULT_EXACT)
+						foundfailed = true;
+					if(!foundfailed) {
+						var j = 0;
+						while(j < psi_conjuncts.length && !foundfailed) {
+							result = matchTreesExact(psi_conjuncts[j], right_conjuncts[1+j], null);
+							if(result != MATCH_RESULT_EXACT)
+								foundfailed = true;
+							j++;
+						}
+						if(!foundfailed)
+							return MATCH_RESULT_APPLIED;
+					}
+					// try matching with cited1 at the end
+					var j = 0;
+					foundfailed = false;
+					while(j < psi_conjuncts.length && !foundfailed) {
+						result = matchTreesExact(psi_conjuncts[j], right_conjuncts[j], null);
+						if(result != MATCH_RESULT_EXACT)
+							foundfailed = true;
+						j++;
+					}
+					if(!foundfailed) {
+						result = matchTreesExact(phi_conjuncts[0], right_conjuncts[j], null);
+						if(result == MATCH_RESULT_EXACT)
+							return MATCH_RESULT_APPLIED;
+					}
+				}
+				// else fall through to case 2
+
+				// case 2 - result is
+				// cited1_conj1 /\ cited1_conj2 /\ ... cited2_conj1 /\ cited2_conj2 /\ ...
+
+				if(getStmtType(cited1) == STMT_TYPE_OP && 
+					getStmtValue(cited1) == STMT_VAL_CONJ) {
+					phi_conjuncts = getStmtChildren(cited1);
+				}
+				else
+					continue;
+				if(getStmtType(cited2) == STMT_TYPE_OP && 
+					getStmtValue(cited2) == STMT_VAL_CONJ) {
+					psi_conjuncts = getStmtChildren(cited2);
+				}
+				else
+					continue;
+				if(phi_conjuncts.length + psi_conjuncts.length != right_tree.length)
+					continue;
+				var j = 0;
+				var foundfailed = false;
+				while(j < phi_conjuncts.length && !foundfailed) {
+					var result = matchTreesExact(phi_conjuncts[j], right_conjuncts[j], null);
+					if(result != MATCH_RESULT_EXACT)
+						foundfailed = true;
+					j++;
+				}
+				if(foundfailed)
+					continue;
+				var j2 = 0;
+				while(j2 < psi_conjuncts.length && !foundfailed) {
+					var result = matchTreesExact(psi_conjuncts[j2], right_conjuncts[j+j2], null);
+					if(result != MATCH_RESULT_EXACT)
+						foundfailed = true;
+					j2++;
+				}
+				if(foundfailed)
+					continue;
+				return MATCH_RESULT_APPLIED;
+			}
+			else {
+				// no support for generalized statements for other rules
+				return MATCH_RESULT_FAILED;
+			}
+		}
+		return MATCH_RESULT_FAILED;
+	}
+
+	// rules with one cited step
+	if(left_trees.length == 1) {
+		if(rule_id == "add") {
+			// addition with generalized statements is valid if the cited
+			//  step is a disjunct of the resulting statement
+			var left = left_trees[0];
+			var right_children = getStmtChildren(right_tree);
+			if(getStmtType(right_tree) != STMT_TYPE_OP || getStmtVal(right_tree) != STMT_VAL_DISJ)
+				return MATCH_RESULT_FAILED;
+			if(right_children == null)
+				return MATCH_RESULT_FAILED;
+			for(var i = 0;i < right_children.length;i++) {
+				var result = matchTreesExact(left, right_children[i], null);
+				if(result == MATCH_RESULT_EXACT)
+					return MATCH_RESULT_APPLIED;
+			}
+			// addition is also valid if it is a substring of the resulting statement
+			if(getStmtType(left) != STMT_TYPE_OP || getStmtVal(left) != STMT_VAL_DISJ)
+				return MATCH_RESULT_FAILED;
+			var left_children = getStmtChildren(left);
+			if(right_children.length <= left_children.length)
+				return MATCH_RESULT_FAILED;
+			for(var c_i = 0;c_i < (right_children.length - left_children.length + 1);c_i++) {
+				var found_fail = false;
+				for(var res_i = 0;res_i < left_children.length && !found_fail;res_i++) {
+					var result = matchTreesExact(right_children[c_i + res_i], 
+						left_children[res_i], null);
+					if(result == MATCH_RESULT_FAILED || result == MATCH_RESULT_FAILED_GEN) {
+						found_fail = true;
+					}
+				}
+				if(!found_fail) {
+					return MATCH_RESULT_APPLIED;
+				}
+			}
+			return MATCH_RESULT_FAILED;
+		}
+
+		// not done - other rules with generalized statements not supported for now
+		if(true)
+			return MATCH_RESULT_FAILED;
+
+		else if(rule_id == "idem") {
+			var left = left_trees[0];
+			var right = right_tree;
+
+			// non-generalized case
+			var env1 = newVarEnv();
+			var result1 = matchTreesExact(left, rule_left[0], env1);
+			var result2 = matchTreesExact(right, rule_right, env1);
+			if(result1 == MATCH_RESULT_EXACT && result2 == MATCH_RESULT_EXACT)
+				return MATCH_RESULT_APPLIED;
+
+			// generalized case - (phi is a disj and RHS is a disj) or (phi is a conj and RHS is a conj)
+			if(getStmtType(left) == getStmtType(right) && 
+				getStmtType(left) == STMT_TYPE_OP && ((getStmtVal(left) == STMT_VAL_CONJ && 
+				getStmtVal(right) == STMT_VAL_CONJ) || (getStmtVal(left) == STMT_VAL_DISJ && 
+				getStmtVal(right) == STMT_VAL_DISJ)) && getStmtVal(left) == getStmtVal(rule_right)) {
+				var right_children = getStmtChildren(right);
+				if(right_children.length % 2 == 1)
+					return MATCH_RESULT_FAILED;
+				var left_children = getStmtChildren(left);
+				if(right_children.length / 2 != left_children.length)
+					return MATCH_RESULT_FAILED;
+				var result;
+				// match children
+				for(var i = 0;i < left_children.length;i++) {
+					result = matchTreesExact(left_children[i], right_children[i], null);
+					if(result == MATCH_RESULT_FAILED || MATCH_RESULT_FAILED_GEN)
+						return MATCH_RESULT_FAILED;
+					result = matchTreesExact(left_children[i], right_children[i + left_children.length], null);
+					if(result == MATCH_RESULT_FAILED || MATCH_RESULT_FAILED_GEN)
+						return MATCH_RESULT_FAILED;
+				}
+				return MATCH_RESULT_APPLIED;
+			}
+			return MATCH_RESULT_FAILED;
+		}
+		else if(rule_id == "com") {
+			// commutation with generalized statements is valid if 
+			//  one is a cyclic rotation of the other
+			var left = left_trees[0];
+			var right = right_tree;
+			var left_type = getStmtType(left);
+			var right_type = getStmtType(right);
+			if(left_type != STMT_TYPE_OP || right_type != STMT_TYPE_OP)
+				return MATCH_RESULT_FAILED;
+			var left_val = getStmtVal(left);
+			var right_val = getStmtVal(right);
+			if(left_val != right_val || right_val != getStmtVal(rule_right))
+				return MATCH_RESULT_FAILED;
+			var left_children = getStmtChildren(left);
+			var right_children = getStmtChildren(right);
+			if(left_children.length != right_children.length)
+				return MATCH_RESULT_FAILED;
+			var result;
+			for(var i = 1;i < left_children.length;i++) {
+				var failfound = false;
+				for(var j = 0;j < left_children.length && !failfound;j++) {
+					var lindex = j;
+					var rindex = (i + j) % right_children.length;
+					result = matchTreesExact(left_children[lindex], right_children[rindex], null);
+					if(result == MATCH_RESULT_FAILED || result == MATCH_RESULT_FAILED_GEN)
+						failfound = true;
+				}
+				if(!failfound)
+					return MATCH_RESULT_APPLIED;
+			}
+			return MATCH_RESULT_FAILED;
+		}
+		else if(rule_id == "assoc") {
+			var left = left_trees[0];
+			var right = right_tree;
+			var left_type = getStmtType(left);
+			var right_type = getStmtType(right);
+			var left_val = getStmtVal(left);
+			var right_val = getStmtVal(right);
+			var left_children = getStmtChildren(left);
+			var right_children = getStmtChildren(right);
+			if(left_children == null || right_children == null || 
+				left_children.length < 2 || right_children.length < 2)
+				return MATCH_RESULT_FAILED;
+			var l_ch_type = getStmtType(left_children[1]);
+			var r_ch_type = getStmtType(right_children[0]);
+			var l_ch_val = getStmtType(left_children[1]);
+			var r_ch_val = getStmtType(right_children[0]);
+			if(l_ch_type != r_ch_type || r_ch_type != left_type || 
+				left_type != right_type || right_type != getStmtType(rule_right) || 
+				l_ch_val != r_ch_val || r_ch_val != right_val || 
+				right_val != left_val || left_val != getStmtVal(rule_right)) {
+				return MATCH_RESULT_FAILED;
+			}
+
+			// match associated statements by "flattening" them
+			var flattened_children_left = new Array();
+			var psi_op_chi = left_children[left_children.length-1];
+			if(left_children.length > 2) {
+				// phi is a generalized statement
+				for(var i = 0;i < left_children.length-1;i++)
+					flattened_children_left[i] = left_children[i];
+			}
+			else {
+				flattened_children_left[0] = left_children[0];
+			}
+			var psi_op_chi_ch = getStmtChildren(psi_op_chi);
+			for(var i = 0;i < psi_op_chi_ch.length;i++) {
+				flattened_children_left[flattened_children_left.length] = psi_op_chi_ch[i];
+			}
+			var flattened_chilrden_right = new Array();
+			var phi_op_psi = right_children[0];
+			var phi_op_psi_ch = getStmtChildren(phi_op_psi);
+			for(var i = 0;i < phi_op_chi_ch.length;i++) {
+				flattened_children_right[flattened_children_right.length] = phi_op_psi_ch[i];
+			}
+			if(right_children.length > 2) {
+				// chi is a generalized statement
+				for(var i = 1;i < right_children.length;i++) 
+					flattened_children_right[flattened_children_right.length] = right_children[i];
+			}
+			else {
+				flattened_children_right[flattened_children_right.length] = right_children[1];
+			}
+			// compare flattened operands
+			if(flattened_children_left.length != flattened_children_right.length)
+				return MATCH_RESULT_FAILED;
+			for(var i = 0;i < flattened_children_left.length;i++) {
+				var result = matchTreesExact(flattened_children_left[i], flattened_children_right[i], null);
+				if(result == MATCH_RESULT_FAILED || result == MATCH_RESULT_FAILED_GEN)
+					return MATCH_RESULT_FAILED;
+			}
+			return MATCH_RESULT_APPLIED;
+		}
+		else if(rule_id == "dist") {
+			var left = left_tree[0];
+			var right = right_tree;
+			// not done
+		}
+		else if(rule_id == "equiv") {
+			var left = left_tree[0];
+			var right = right_tree;
+			var left_type = getStmtType(left);
+			var right_type = getStmtType(right);
+			var left_val = getStmtVal(left);
+			var right_val = getStmtVal(right);
+			if(left_type != STMT_TYPE_OP || right_type != STMT_TYPE_OP || 
+				left_val != STMT_VAL_BICOND || right_val != getStmtVal(rule_right))
+				return MATCH_RESULT_FAILED;
+			var right_children = getStmtChildren(right);
+			var left_children = getStmtChildren(left);
+			if(right_children.length != 2 || left_children < 2)
+				return MATCH_RESULT_FAILED;
+			var result;
+			var env1 = newVarEnv();
+			result = matchTreesExact(right_children[1], getStmtChildren(rule_right)[1], env1);
+			if(result == MATCH_RESULT_FAILED || result == MATCH_RESULT_FAILED_GEN)
+				return MATCH_RESULT_FAILED;
+			result = matchTreesExact(right_children[0], getStmtChildren(rule_right)[0], env1);
+			if(result == MATCH_RESULT_FAILED || result == MATCH_RESULT_FAILED_GEN)
+				return MATCH_RESULT_FAILED;
+			result = matchTreesExact(left, rule_left[0], env1);
+			if(result == MATCH_RESULT_EXACT)
+				return MATCH_RESULT_APPLIED;
+			else if(result == MATCH_RESULT_FAILED)
+				return MATCH_RESULT_FAILED;
+			// look for a generalized biconditional
+			var phi = getStmtFromVar(getVarFromEnv(env1, "phi"));
+			var psi = getStmtFromVar(getVarFromEnv(env1, "psi"));
+			if(!(getStmtType(phi) == STMT_TYPE_OP && getStmtVal(phi) == STMT_VAL_BICOND) && 
+				!(getStmtType(psi) == STMT_TYPE_OP && getStmtVal(psi) == STMT_VAL_BICOND))
+				return MATCH_RESULT_FAILED;
+			var step_children = getStmtChildren(left);
+			var left_children = new Array();
+			if(getStmtType(phi) == STMT_TYPE_OP && getStmtVal(phi) == STMT_VAL_BICOND) {
+				var phi_ch = getStmtChildren(phi);
+				for(var i = 0;i < phi_ch.length;i++) {
+					left_children[left_children.length] = phi_ch[i];
+				}
+			}
+			else {
+				left_children[left_children.length] = phi;
+			}
+			if(getStmtType(psi) == STMT_TYPE_OP && getStmtVal(psi) == STMT_VAL_BICOND) {
+				var psi_ch = getStmtChildren(psi);
+				for(var i = 0;i < psi_ch.length;i++) {
+					left_children[left_children.length] = psi_ch[i];
+				}
+			}
+			else {
+				left_children[left_children.length] = psi;
+			}
+			if(left_children.length != step_children.length)
+				return MATCH_RESULT_FAILED;
+			for(var i = 0;i < left_children.length;i++) {
+				result = matchTreesExact(left_children[i], step_children[i], env);
+				if(result == MATCH_RESULT_FAILED || result == MATCH_RESULT_FAILED_GEN)
+					return MATCH_RESULT_FAILED;
+			}
+			return MATCH_RESULT_APPLIED;
+		}
+		else {
+			// no support for generalized statements for other rules
+			return MATCH_RESULT_FAILED;
+		}
+	}
+
+	return MATCH_RESULT_FAILED;
+}
+
+// attempts to match tree1 and tree2 using a given environment
+//  and the given rule trees (equivalence)
+// does a DFS and contains special cases for handling 
+//  generalized statements
+// handles one rule form
+// permutes the direction of rule applications 
+//  (by permuting the order of tree arguments to matchTreesInfer())
+// tree1 is a statement/parse tree
+// tree2 is another statement/parse tree
+// env is a variable environment
+// rule_id is an internal rule identifier
+// rule_left is a statement/parse tree
+// rule_right is another statement/parse tree
+// returns MATCH_RESULT_EXACT, MATCH_RESULT_FAILED, or 
+//  MATCH_RESULT_APPLIED
+function matchTreesEquiv(tree1, tree2, env, rule_id, rule_left, rule_right) {
+	var tree1_type = getStmtType(tree1);
+	var tree2_type = getStmtType(tree2);
+	var tree1_val = getStmtVal(tree1);
+	var tree2_val = getStmtVal(tree2);
+	var ret_val = MATCH_RESULT_FAILED;
+	if(tree1_type == STMT_TYPE_ATOM && tree2_type == STMT_TYPE_ATOM) {
+		if(tree1_val == tree2_val)
+			return MATCH_RESULT_EXACT;
+	}
+	else if(tree1_type == STMT_TYPE_OP && tree2_type == STMT_TYPE_OP) {
+		// same operator type - attempt to match children
+		if(tree1_val == tree2_val) {
+			var tree1_ch = getStmtChildren(tree1);
+			var tree2_ch = getStmtChildren(tree2);
+			if(tree1_ch.length == tree2_ch.length) {
+				for(var i = 0;i < tree1_ch.length;i++) {
+					var result1 = matchTreesEquiv(tree1_ch[i], tree2_ch[i], 
+						newVarEnv(), rule_id, rule_left, rule_right);
+					var result2 = matchTreesEquiv(tree2_ch[i], tree1_ch[i], 
+						newVarEnv(), rule_id, rule_left, rule_right);
+					var match_val = matchResultMax(result1, result2);
+					// if a pair of children can't be matched, fail and apply rule
+					//  in the second half of this function
+					if(match_val == MATCH_RESULT_FAILED) {
+						ret_val = MATCH_RESULT_FAILED;
+						break;
+					}
+					else {
+						ret_val = matchResultMax(ret_val, match_val)
+					}
+				}
+				// all children matched successfully, possibly with a rule application
+				if(ret_val != MATCH_RESULT_FAILED)
+					return ret_val;
+			}
+		}
+	}
+
+	// matchings so far failed - attempt to apply rule at this level
+
+	// attempt to match entire level
+
+	// match in forward and reverse directions
+	var tree1_arr = new Array(1);
+	tree1_arr[0] = tree1;
+	var rule_left_arr = new Array(1);
+	rule_left_arr[0] = rule_left;
+	var result1 = matchTreesInfer(tree1_arr, tree2, newVarEnv(), rule_id, 
+		rule_left_arr, rule_right, new Array(1), new Array(1));
+	if(result1 == MATCH_RESULT_FAILED) {
+		var tree2_arr = new Array(1);
+		tree2_arr[0] = tree2;
+		var result2 = matchTreesInfer(tree2_arr, tree1, newVarEnv(), 
+			rule_id, rule_left_arr, rule_right, new Array(1), new Array(1))
+		if(result2 == MATCH_RESULT_APPLIED) {
+			return result2;
+		}
+	}
+	else {
+		return result1;
+	}
+
+	// not done - applying equiv to parts of generalized statements not supported for now
+	return MATCH_RESULT_FAILED;
+
+	// if both trees are generalized statements of the same operator type, 
+	//  the rule may have been applied to part of this level - search combinations
+	if(isGeneralized(tree1) && isGeneralized(tree2) && sameOpType(tree1, tree2)) {
+		var tree1_ch = getStmtChildren(tree1);
+		var tree2_ch = getStmtChildren(tree2);
+		var tree1_len = tree1_ch.length;
+		var tree2_len = tree2_ch.length;
+		var smallertree; // fewer operands
+		var largertree;
+		var diff; // difference in the number of operands
+		if(tree1_len > tree2_len) {
+			largertree = tree1;
+			smallertree = tree2;
+			diff = tree1_len - tree2_len;
+		}
+		else {
+			largertree = tree2;
+			smallertree = tree1;
+			diff = tree2_len - tree1_len;
+		}
+		var smallertree_ch = getStmtChildren(smallertree);
+		var largertree_ch = getStmtChildren(largertree);
+
+		var new_tree1; // constructed from replacing the part of tree1 that was matched
+		var new_tree2;
+
+		//new_tree1 = newStatementNode();
+		//setStmtType(new_tree1, STMT_TYPE_OP);
+		//setStmtVal(new_tree1, tree1_val);
+		//new_tree2 = newStatementNode();
+		//setStmtType(new_tree2, STMT_TYPE_OP);
+		//setStmtVal(new_tree2, tree1_val);
+
+		if(rule_id == "dneg") {
+			// diff != 0 here because that will have been taken care of
+			// therefore, direction is determined (one can be ignored)
+			var phi_len = diff+1; // number of operands in phi (phi <=> ~~phi)
+			// smallertree_ch.length different positions for applying rule
+			// for each position...
+			for(var i = 0;i < smallertree_ch.length;i++) {
+				// compare non-matched operands
+				var failfound = false;
+
+				//  before matched substring
+				for(var j = 0;j < i && !failfound;j++) {
+					var result = matchTreesExact(smallertree[j], largertree[j], null);
+					if(result == MATCH_RESULT_FAILED || result == MATCH_RESULT_FAILED_GEN)
+						failfound = true;
+				}
+				if(failfound)
+					continue;
+
+				//  after matched substring
+				for(var j = i+1;j < smallertree_ch.length && !failfound;j++) {
+					var result = matchTreesExact(smallertree[j], largertree[j+diff], null);
+					if(result == MATCH_RESULT_FAILED || result == MATCH_RESULT_FAILED_GEN)
+						failfound = true;
+				}
+				if(failfound)
+					continue;
+
+				// extract from largertree and create a gen. st. node for phi
+				var phi = newStatementNode();
+				setStmtType(phi, tree1_type);
+				setStmtType(phi, tree1_val);
+				for(var j = 0;j < phi_len;j++) {
+					addStmtChild(phi, largertree[i+j]);
+				}
+
+				// match part of largertree to an operand from smallertree
+				var phi_arr = new Array(1);
+				phi_arr[0] = phi;
+				var rule_left_arr = new Array(1);
+				rule_left_arr[0] = rule_left;
+				var result = matchTreesInfer(phi_arr, smallertree[i], null, 
+					rule_id, rule_left_arr, rule_right, null, null);
+				if(result == MATCH_RULE_APPLIED)
+					return result;
+				// otherwise, loop and try another position
+			}
+			return MATCH_RESULT_FAILED;
+		}
+		else if(rule_id == "idem") {
+		// not done
+		}
+		else if(rule_id == "com") {
+		// not done
+		}
+		else if(rule_id == "assoc") {
+		// not done
+		}
+		else if(rule_id == "dist") {
+		// not done
+		}
+		else if(rule_id == "dem") {
+		// not done
+		}
+		else if(rule_id == "impl") {
+		// not done
+		}
+		else if(rule_id == "equiv") {
+		// not done
+		}
+		
+	}
+	return MATCH_RESULT_FAILED;
+}
+
+// finds whether two statement nodes have the same operator
+// st_node1 is a statement/parse tree node
+// st_node2 is a statement/parse tree node
+// returns whether the two operators are the same
+//  returns false if they are not operators
+function sameOpType(st_node1, st_node2) {
+	if(st_node1 == null || st_node2 == null)
+		return false;
+	if(getStmtType(st_node1) != STMT_TYPE_OP || 
+		getStmtType(st_node2) != STMT_TYPE_OP)
+		return false;
+	if(getStmtVal(st_node1) == getStmtVal(st_node2))
+		return true;
+	return false;
+}
+
+// determines whether a statement/parse tree node represents
+//  a generalized statement
+// st_node is a statement node
+// returns true or false
+function isGeneralized(st_node) {
+	if(st_node == null)
+		return false;
+	if(getStmtType(st_node) != STMT_TYPE_OP)
+		return false;
+	var op = getStmtVal(st_node);
+	if((op == STMT_VAL_CONJ || op == STMT_VAL_DISJ) 
+		&& getStmtChildren(st_node).length > 2) {
+		return true;
+	}
+	return false;
+}
+
+// finds the "maximum" of MATCH_RESULT_* values
+// used by matchTreesEquiv()
+// result1 is MATCH_RESULT_FAILED, MATCH_RESULT_EXACT, or MATCH_RESULT_APPLIED
+// result2 has an identical domain
+// returns a match result value (same domain as result1)
+function matchResultMax(result1, result2) {
+	if(result1 == MATCH_RESULT_APPLIED || 
+		result2 == MATCH_RESULT_APPLIED)
+		return MATCH_RESULT_APPLIED;
+	if(result1 == MATCH_RESULT_EXACT || 
+		result2 == MATCH_RESULT_EXACT)
+		return MATCH_RESULT_EXACT;
+	if(result1 == MATCH_RESULT_FAILED || 
+		result2 == MATCH_RESULT_FAILED)
+		return MATCH_RESULT_FAILED;
+	debug("error: invalid arguments to matchResultMax()");
+	return null;
+}
+
+// checks a given statement and updates the interface
+// st is the id of a textarea element associated with the statement of each line
+function check(st) {
+	var st_node = document.getElementById(st); // textarea node
+	var td_node = st_node.parentNode;
+	var linenums_node = getLineNumsNode(td_node);
+	var rule_node = getRuleNode(td_node); // an option node
+	var select_node = getSelectNode(td_node);
+   var stepnum = getStepNum(td_node);
+	var chkstatus_node = getCheckStatusNode(td_node);
+	var ichkstatus_node = getInternalCheckStatusNode(td_node);
+	var steps_array = parseLinesTextToArray(linenums_node.value);
+	var c_rule;
+	var rule_id;
+
+	// check that a rule is specified and that it exists
+	rule_id = rule_node.value;
+	if(rule_id == "invalid") {
+		chkstatus_node.nodeValue = " Needs a rule ";
+		ichkstatus_node.value = "invalid";
+		return;
+	}
+	c_rule = getRuleByIdentifier(rule_id); // a compiled rule
+	if(c_rule == null) {
+		debug("error: could not find rule " + c_rule + "in check()");
+		return;
+	}
+
+	// special case - conditional proof
+	// match using last statement in subproof, second-to-last, etc. as psi
+	if(c_rule[1] == "cp") {
+		if(steps_array == null || steps_array.length != 1) {
+			chkstatus_node.nodeValue = " CP needs 1 cited assumption (of a subproof) ";
+			ichkstatus_node.value = "invalid";
+			return;
+		}
+		var cited_tr_node = getRowByStepNum(steps_array[0], document.getElementById("mainproof"));
+		if(getRowType(cited_tr_node) != "assumption") {
+			chkstatus_node.nodeValue = " CP needs 1 cited assumption (of a subproof) ";
+			ichkstatus_node.value = "invalid";
+			return;
+		}
+		var cited_td_node = cited_tr_node.cells[1];
+		// check whether the resulting step is in the scope of the cited step
+		if(!isInScope(cited_td_node, td_node, true)) {
+			chkstatus_node.nodeValue = " Cited subproof is not in scope ";
+			ichkstatus_node.value = "invalid";
+			return;
+		}
+		// get antecedent statement
+		var antecedent_str = getStatementNode(cited_td_node).value;
+		if(antecedent_str == null || antecedent_str == "") {
+			chkstatus_node.nodeValue = " Parse error: step " + steps_array[0] + " ";
+			ichkstatus_node.value = "invalid";
+			return;
+		}
+		var antecedent_tree = parseStmtWrapper(antecedent_str, false);
+		if(antecedent_tree == null) {
+			chkstatus_node.nodeValue = " Parse error: step " + steps_array[0] + " ";
+			ichkstatus_node.value = "invalid";
+			return;
+		}
+		// get result statement
+		var result_str = st_node.value;
+		var result_tree;
+		if(result_str == null || result_str == "")
+			result_tree = null;
+		else {
+			result_tree = parseStmtWrapper(result_str, false);
+			if(result_tree == null) {
+				chkstatus_node.nodeValue = " Parse error: this step ";
+				ichkstatus_node.value = "invalid";
+				return;
+			}
+		}
+		// check using each statement in the cited subproof
+		var cited_table = cited_tr_node.parentNode.parentNode;
+		var i = cited_table.rows.length-1;
+		var each_tr_node = cited_table.rows[i];
+		var left_trees = new Array(2); // to be passed to matchTreesInfer
+		left_trees[0] = antecedent_tree;
+		while(getRowType(each_tr_node) != "ignore") {
+			if(getRowType(each_tr_node) == "statement") {
+				// try applying CP
+				var consequent_str = getStatementNode(each_tr_node.cells[1]).value;
+				if(consequent_str != null && consequent_str != "") {
+					var consequent_tree = parseStmtWrapper(consequent_str, false);
+					if(consequent_tree != null) {
+						// match as inference
+						left_trees[1] = consequent_tree;
+						var rule_left = c_rule[3][0][0];
+						var rule_right = c_rule[3][0][1];
+						var stmt_out = new Array(1); // return statement tree
+						var env_out = new Array(1); // return environment
+						var result = matchTreesInfer(left_trees, result_tree, newVarEnv(), 
+							rule_id, rule_left, rule_right, stmt_out, env_out);
+						if(result == MATCH_RESULT_APPLIED) {
+							// if a statement should be generated automatically
+							if(result_tree == null) {
+								st_node.value = stmtTreeToTextWithEnv(stmt_out[0], false, env_out[0]);
+							}
+							chkstatus_node.nodeValue = " Valid ";
+							ichkstatus_node.value = "valid/" + linenums_node.value;
+							return;
+						}
+					}
+				}
+			}
+			i--;
+			each_tr_node = cited_table.rows[i];
+		}
+		// could not find a valid consequent, failed
+		chkstatus_node.nodeValue = " Invalid ";
+		ichkstatus_node.value = "invalid";
+		return;
+	}
+
+	// if it's an inference rule and the LHS is empty
+	//  - special case for "axiom" type inference rules
+	if(c_rule[2] == RULE_TYPE_INFER) {
+		var found_false = false;
+		for(var i = 0;i < c_rule[3].length && !found_false;i++) {
+			// if a rule form has a non-empty LHS
+			if(!(c_rule[3][i][0] == null || c_rule[3][i][0].length == 0)) {
+				found_false = true;
+			}
+		}
+		// if a rule has no LHS in any forms
+		if(!found_false) {
+			if(st_node.value == "") {
+				st_node.value = stmtTreeToTextWithEnv(c_rule[3][0][1], false, newVarEnv());
+				chkstatus_node.nodeValue = " Valid ";
+				ichkstatus_node.value = "valid/" + st_node.value;
+				return;
+			}
+			for(var forms_itr = 0;forms_itr < c_rule[3].length;forms_itr++) {
+				var c_rule_form = c_rule[3][forms_itr];
+				var result_tree = parseStmtWrapper(st_node.value, false);
+				if(result_tree == null) {
+					chkstatus_node.nodeValue = " Parse error: this step ";
+					ichkstatus_node.value = "invalid";
+					return;
+				}
+				var result = matchTreesExact(result_tree, c_rule_form[1], newVarEnv());
+				if(result == MATCH_RESULT_EXACT) {
+					chkstatus_node.nodeValue = " Valid ";
+					ichkstatus_node.value = "valid/" + st_node.value;
+					return;
+				}
+			}
+			chkstatus_node.nodeValue = " Invalid ";
+			ichkstatus_node.value = "invalid";
+			return;
+		}
+	}
+
+	// check that the line nums node has the right number of steps cited
+	if(c_rule[2] == RULE_TYPE_EQUIV) {
+		if(steps_array == null || steps_array.length != 1) {
+			chkstatus_node.nodeValue = " Rule needs 1 cited step ";
+			ichkstatus_node.value = "invalid";
+			return;
+		}
+	}
+	else if(c_rule[2] == RULE_TYPE_INFER) {
+		// different rule forms may have different numbers of LHS steps
+		// check that num steps is sufficient for at least one form
+		var found_valid = false;
+		for(var i = 0;i < c_rule[3].length && !found_valid;i++) {
+			var form_num_steps = c_rule[3][i][0].length;
+			if((form_num_steps == 0 && steps_array == null) || 
+				(steps_array != null && form_num_steps == steps_array.length))
+				found_valid = true;
+		}
+		if(!found_valid) {
+			var temp_str = " Rule needs " + c_rule[3][0][0].length + " cited step";
+			if(c_rule[3][0][0].length != 1)
+				temp_str = temp_str + "s";
+			temp_str = temp_str + " ";
+			chkstatus_node.nodeValue = temp_str;
+			ichkstatus_node.value = "invalid";
+			return;
+		}
+	}
+	else {
+		debug("error: found invalid rule type in check()");
+		return;
+	}
+
+	// check that the cited steps are valid and in scope
+	var cited_steps_trees = new Array();
+	for(var i = 0;i < steps_array.length;i++) {
+		var cited_tr_node = getRowByStepNum(steps_array[i], document.getElementById("mainproof"));
+		if(cited_tr_node == null) {
+			chkstatus_node.nodeValue = " Step " + steps_array[i] + " does not exist ";
+			ichkstatus_node.value = "invalid";
+			return;
+		}
+		var cited_td_node = cited_tr_node.cells[1];
+		if(!isInScope(cited_td_node, td_node, false)) {
+			chkstatus_node.nodeValue = " Step " + steps_array[i] + " is not in scope ";
+			ichkstatus_node.value = "invalid";
+			return;
+		}
+		cited_steps_trees[i] = parseStmtWrapper(getStatementNode(cited_td_node).value, false);
+		if(cited_steps_trees[i] == null) {
+			chkstatus_node.nodeValue = " Parse error: step " + steps_array[i] + " ";
+			ichkstatus_node.value = "invalid";
+			return;
+		}
+	}
+
+	// check whether a statement is provided in the textarea node
+	var auto_gen = false;
+	if(st_node.value == "")
+		auto_gen = true;
+
+	// parse cited steps
+	var left_trees = new Array();
+	for(var left_stmts_itr = 0;left_stmts_itr < steps_array.length;
+		left_stmts_itr++) {
+		// parse each cited statement
+		left_trees[left_stmts_itr] = parseStmtWrapper(getStatementNode(getRowByStepNum(steps_array[left_stmts_itr], 
+			document.getElementById("mainproof")).cells[1]).value, false);
+		if(left_trees[left_stmts_itr] == null) {
+			chkstatus_node.nodeValue = " Parse error: step " + steps_array[i] + " ";
+			ichkstatus_node.value = "invalid";
+			return;
+		}
+	}
+
+	// apply the rule
+	// try each rule form
+	for(var forms_itr = 0;forms_itr < c_rule[3].length;forms_itr++) {
+		var c_rule_form = c_rule[3][forms_itr];
+		var result_str;
+		var result_tree;
+		var right_tree;
+		var rule_left;
+		var rule_right;
+		var result_stmt = new Array(1);
+		var result_env = new Array(1);
+		var result;
+		// get result statement tree
+		if(!auto_gen) {
+			result_str = st_node.value;
+			result_tree = parseStmtWrapper(result_str, false);
+			if(result_tree == null) {
+				chkstatus_node.nodeValue = " Parse error: this step ";
+				ichkstatus_node.value = "invalid";
+				return;
+			}
+		}
+		else {
+			result_str = "";
+			result_tree = null;
+		}
+		// inference rules
+		if(c_rule[2] == RULE_TYPE_INFER) {
+			// set up parameters for match functions
+			if(c_rule_form[0].length != left_trees.length) {
+				// rule form and number of cited steps don't match
+				continue;
+			}
+			right_tree = result_tree;
+			rule_left = c_rule_form[0];
+			rule_right = c_rule_form[1];
+			result = matchTreesInfer(left_trees, right_tree, newVarEnv(), 
+				rule_id, rule_left, rule_right, result_stmt, result_env);
+			if(result != MATCH_RESULT_APPLIED)
+				continue;
+			// rule applied successfully
+			if(auto_gen) {
+				st_node.value = stmtTreeToTextWithEnv(result_stmt[0], false, result_env[0]);
+			}
+			chkstatus_node.nodeValue = " Valid ";
+			ichkstatus_node.value = "valid/" + linenums_node.value;
+			return;
+		}
+		// equivalence rules
+		else if(c_rule[2] == RULE_TYPE_EQUIV) {
+			// set up parameters for match functions
+			right_tree = result_tree;
+			var env = newVarEnv();
+			rule_left = c_rule_form[0];
+			rule_right = c_rule_form[1];
+			if(!auto_gen) {
+				result = matchTreesEquiv(left_trees[0], right_tree, env, 
+					rule_id, rule_left, rule_right);
+				// if equiv rule's cited step and resulting step are the same
+				//  change rule to reit and accept
+				if(result == MATCH_RESULT_EXACT) {
+					setRule(select_node, "reit");
+				}
+				// otherwise, if the match fails
+				else if(result != MATCH_RESULT_APPLIED)
+					continue;
+				// rule applied successfully
+				chkstatus_node.nodeValue = " Valid ";
+				ichkstatus_node.value = "valid/" + linenums_node.value;
+				return;
+			}
+			else {
+				// automatically generate a statement by applying equiv 
+				//  rule as an inference rule
+				var rule_left_arr = new Array(1);
+				rule_left_arr[0] = rule_left;
+				result = matchTreesInfer(left_trees, right_tree, newVarEnv(), 
+					rule_id, rule_left_arr, rule_right, result_stmt, result_env);
+				if(result == MATCH_RESULT_APPLIED) {
+					st_node.value = stmtTreeToTextWithEnv(result_stmt[0], false, result_env[0]);
+					chkstatus_node.nodeValue = " Valid ";
+					ichkstatus_node.value = "valid/" + linenums_node.value;
+					return;
+				}
+				// try the other direction
+				rule_left_arr[0] = rule_right;
+				result = matchTreesInfer(left_trees, right_tree, newVarEnv(), 
+					rule_id, rule_left_arr, rule_left, result_stmt, result_env);
+				if(result == MATCH_RESULT_APPLIED) {
+					st_node.value = stmtTreeToTextWithEnv(result_stmt[0], false, result_env[0]);
+					chkstatus_node.nodeValue = " Valid ";
+					ichkstatus_node.value = "valid/" + linenums_node.value;
+					return;
+				}
+			}
+		}
+		else {
+			debug("error: found invalid rule type in check()");
+			return;
+		}
+	}
+
+	if(c_rule[2] == RULE_TYPE_EQUIV && auto_gen) {
+		chkstatus_node.nodeValue = " Needs a result sentence ";
+		ichkstatus_node.value = "invalid";
+		return;
+	}
+
+	// unable to find a valid rule form
+	chkstatus_node.nodeValue = " Invalid ";
+	ichkstatus_node.value = "invalid";
+	return;
+}
+
+// check all statements
+function checkAll() {
+	checkAllRec(document.getElementById("mainproof"));
+	return;
+}
+
+// check all statements in a subproof
+// helper for checkAll()
+// table_node is the node for the table element of a subproof
+function checkAllRec(table_node) {
+	for(var i = 0;i < table_node.rows.length;i++) {
+		var row_type = getRowType(table_node.rows[i]);
+		if(row_type == "statement") {
+			check(getStatementNode(table_node.rows[i].cells[1]).id);
+		}
+		else if(row_type == "subproof") {
+			checkAllRec(table_node.rows[i].cells[1].firstChild);
+		}
+	}
+	return;
+}
+
+// runs when this page loads
+function init() {
+	compiled_rules = compileRules(source_rules);
+	addStatementAfter('line1');
+	getSelectNode(getRowByStepNum(2, document.getElementById("mainproof")).cells[1]).nodeValue = newSelectElement();
+	return true;
+}
+
+// writes a debug message to the designated div element, 
+//  overwriting its previous contents
+// an HTML line break is added after this message
+// message is a string
+function debug(message) {
+	if(enableDebuggingMessages == false) {
+		return; // debugging messages disabled
+	}
+	var d = document.getElementById("debugmsgs");
+	d.innerHTML = d.innerHTML + "DEBUG: [" + message + "]<br />";
+}
+
+function testfunction() {
+	return;
+}
+</script>
+</head>
+<body onload="init();">
+<div>
+<h1>System B</h1>
+<div id="debugmsgs">
+</div>
+<br />
+<!--<input type="button" value="test" onclick="testfunction();" />-->
+<input type="button" value="Check All" onclick="checkAll();" />&nbsp;&nbsp;&nbsp;<a href="help.html">Help</a>
+<br /><br />
+Shortcuts: not: !, and: &amp;, or: |, conditional: $, biconditional: %
+<br /><br />
+<table id="mainproof" class="subproof" width="100%">
+	<tr>
+		<td><input type="hidden" value="assumption" name="assumption" /></td>
+		<td>
+		1
+		<img src="addstep.gif" alt="Add a step" class="operation" onclick="addStatement('line1');" onmousedown="this.className='clickedoperation';" onmouseup="this.className='operation';" onmouseout="this.className='operation';" />
+		<img src="removestep.gif" alt="Remove a step" class="operation" onclick="removeStatement('line1');" onmousedown="this.className='clickedoperation';" onmouseup="this.className='operation';" onmouseout="this.className='operation';" />
+		<img src="addstepafter.gif" alt="Add a step after assumptions" class="operation" onclick="addStatementAfter('line1');" onmousedown="this.className='clickedoperation';" onmouseup="this.className='operation';" onmouseout="this.className='operation';" />
+		<img src="addsubproof.gif" alt="Add a subproof" class="disabledoperation" onclick="" onmousedown="" onmouseup="" onmouseout="" />
+		<textarea cols="52" rows="1" class="statementinput" id="line1" name="line1" onfocus="lastFocus = this; return true;" onkeyup="updateConnectives('line1');"></textarea>
+		</td>
+	</tr>
+	<tr>
+		<td><input type="hidden" value="ignore" /></td>
+		<td><hr /></td>
+	</tr>
+</table>
+<br />
+<input type="button" value="Check All" onclick="checkAll();" />
+</div>
+</body>
+</html>

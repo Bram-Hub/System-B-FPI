@@ -1,0 +1,255 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html>
+<head>
+<title>Help</title>
+<meta http-equiv="Content-Type" content="text/html; charset=iso-8859-1" />
+<style type="text/css">
+TABLE {border-style:solid;border-width:1px;border-color:black;text-align:center;border-collapse:collapse;}
+TH {border-style:solid;border-width:1px;border-color:black;padding:5px;}
+TD {border-style:solid;border-width:1px;border-color:black;padding:5px;}
+H1 {font-family:verdana;}
+H3 {font-family:verdana;}
+BODY {font-family:helvetica;}
+TD.symbol {font-family:courier;}
+</style>
+</head>
+<body>
+<div>
+<h1>Help for System B</h1>
+<br />
+<h3>Basics</h3>
+<img src="interface.gif" alt="The interface" />
+<p>
+The image above is an example of a blank proof in Firefox. It may look somewhat different in other browsers. 
+</p>
+<ul>
+	<li>1. This is an assumption step in the main (top-level) proof. There can be many of these. This cannot contain sub-proofs.</li>
+	<li>2. This is an assumption step in a sub-proof. There can only be one per sub-proof. This cannot contain sub-proofs.</li>
+	<li>3. This is a statement step in a sub-proof.</li>
+	<li>4. This is a statement step in the main proof.</li>
+	<li>5. The "Add Step" button. See below.</li>
+	<li>6. The "Remove Step" button. See below.</li>
+	<li>7. The "Add Step After" button. See below.</li>
+	<li>8. The "Sub-proof" button (disabled for an assumption in the main proof). See below.</li>
+	<li>9. A statement text box for logical sentences. If a sentence takes up more than the visible area, a small scroll bar will appear on the right side of this text box. See "Operators/Connectives" below for details on valid operator symbols and shortcuts.</li>
+	<li>10. A drop-down menu box for rules. A rule can be specified using the mouse or, in most browsers, by typing the first few letters of the rule's name when this box is focused/selected.</li>
+	<li>11. A text box for citing step numbers. Step numbers should be separated by commas. They can be entered in any order.</li>
+	<li>12. A check button for validating the inference or equivalence in this step. This does not check recursive dependencies. These step numbers will be updated when steps are added or removed.</li>
+	<li>13. Check status area. Results from checking rule applications such as "Valid" or "Invalid" will be displayed here.</li>
+	<li>14. Checks all steps by essentially performing a normal check on each step. This does not check recursive dependencies.</li>
+</ul>
+<br />
+<h3>Adding and Removing Steps</h3>
+<p>
+<img src="addstep.gif" alt="Add a step" /> Adds a step after the specified step. If the specified step is an assumption in the main proof, an assumption will be added. Otherwise, a normal statement step will be added. Similar to Fitch's "Add Step After" and "Add Premise." 
+<br /><br />
+<img src="removestep.gif" alt="Remove a step" /> Removes the specified step or, if the step is a sub-proof's assumption, remove the step's sub-proof. If the specified step is the only assumption or the only statement in the main proof or a sub-proof, it is reset but not removed. Equivalent to Fitch's "Delete Step."
+<br /><br />
+<img src="addstepafter.gif" alt="Add a step after this sub-proof" /> Adds a step after the specified step's containing sub-proof. For assumptions in the main proof, this instead adds a statement step after those assumptions (i.e. before the first statement). This button is disabled for statements in the main proof. Similar to Fitch's "End Subproof." 
+<br /><br />
+<img src="addsubproof.gif" alt="Add a sub-proof" /> Adds a sub-proof after the specified step. If the specified step is an empty statement, it will instead be replaced with a new sub-proof. This button is disabled for assumptions. Equivalent to Fitch's "New Subproof." 
+</p>
+<br />
+<h3>Logical Statements</h3>
+<p>
+Statements entered into the statement text box should be propositional logic sentences. Operators are listed below. Atomic propositions are strings of consecutive letters. They are case-sensitive but any case is allowed. 
+</p>
+<p>
+Spaces are mostly ignored. Spaces are only significant when they separate two atomic propositions, which is a parse error. 
+</p>
+<p>
+Generalized conjunctions and disjunctions are allowed.
+</p>
+<br />
+<h3>Justification Step Numbers</h3>
+<p>
+For a statement, cite its corresponding step number. 
+<br /><br />
+For a sub-proof, cite its assumption's step number. 
+</p>
+<br />
+<h3>Operators/Connectives</h3>
+<table class="bordered">
+	<tr>
+		<th>Operator</th>
+		<th>Symbol</th>
+		<th>Shortcut</th>
+	</tr>
+	<tr>
+		<td>Negation</td>
+		<td class="symbol">~</td>
+		<td>!</td>
+	</tr>
+	<tr>
+		<td>Conjunction</td>
+		<td class="symbol">/\</td>
+		<td>&amp;</td>
+	</tr>
+	<tr>
+		<td>Disjunction</td>
+		<td class="symbol">\/</td>
+		<td>|</td>
+	</tr>
+	<tr>
+		<td>Implication</td>
+		<td class="symbol">-&gt;</td>
+		<td>$</td>
+	</tr>
+	<tr>
+		<td>Biconditional</td>
+		<td class="symbol">&lt;-&gt;</td>
+		<td>%</td>
+	</tr>
+</table>
+<p>
+Shortcut characters are automatically replaced with corresponding symbols.
+</p>
+<p>
+Note: Shortcuts may not work correctly in IE. 
+</p>
+<br />
+<h3>Rules</h3>
+Inference: <br />
+<ul>	
+	<li>Reiteration (Reit): 
+		<ul>
+			<li>{&phi;} |- &phi;</li>
+		</ul>
+	</li>
+	<li>Modus Ponens (MP): 
+		<ul>
+			<li>{&phi; &rarr; &psi;, &phi;} |- &psi;</li>
+		</ul>
+	</li>
+	<li>Generalized Simplification (Simp): 
+		<ul>
+			<li>{&phi;<sub>1</sub> &and; &hellip; &and; &phi;<sub>n</sub>} |- &phi;<sub>i</sub></li>
+		</ul>
+	</li>
+	<li>Conjunction (Conj): 
+		<ul>
+			<li>{&phi;, &psi;} |- &phi; &and; &psi;</li>
+		</ul>
+	</li>
+	<li>Generalized Addition (Add): 
+		<ul>
+			<li>{&phi;<sub>i</sub>} |- &phi;<sub>1</sub> &or; &hellip; &or; &phi;<sub>i</sub> &or; &hellip; &or; &phi;<sub>n</sub></li>
+		</ul>
+	</li>
+</ul>
+Equivalence: <br />
+<ul>
+	<li>Double Negation (DN): 
+		<ul>
+			<li>&phi; &hArr; &not;&not;&phi;</li>
+		</ul>
+	</li>
+	<li>Idempotence (Idem): 
+		<ul>
+			<li>&phi; &hArr; &phi; &and; &phi;</li>
+			<li>&phi; &hArr; &phi; &or; &phi;</li>
+		</ul>
+	</li>
+	<li>Commutation (Com): 
+		<ul>
+			<li>&phi; &and; &psi; &hArr; &psi; &and; &phi;</li>
+			<li>&phi; &or; &psi; &hArr; &psi; &or; &phi;</li>
+		</ul>
+	</li>
+	<li>Association (Assoc): 
+		<ul>
+			<li>&phi; &and; (&psi; &and; &chi;) &hArr; (&phi; &and; &psi;) &and; &chi;</li>
+			<li>&phi; &or; (&psi; &or; &chi;) &hArr; (&phi; &or; &psi;) &or; &chi;</li>
+		</ul>
+	</li>
+	<li>Distribution (Dist): 
+		<ul>
+			<li>&phi; &and; (&psi; &or; &chi;) &hArr; (&phi; &and; &psi;) &or; (&phi; &and; &chi;)</li>
+			<li>&phi; &or; (&psi; &and; &chi;) &hArr; (&phi; &or; &psi;) &and; (&phi; &or; &chi;)</li>
+		</ul>
+	</li>
+	<li>DeMorgan (DeM): 
+		<ul>
+			<li>&not;(&phi; &and; &psi;) &hArr; &not;&phi; &or; &not;&psi;</li>
+			<li>&not;(&phi; &or; &psi;) &hArr; &not;&phi; &and; &not;&psi;</li>
+		</ul>
+	</li>
+	<li>Transposition (Trans): 
+		<ul>
+			<li>&phi; &rarr; &psi; &hArr; &not;&psi; &rarr; &not;&phi;</li>
+		</ul>
+	</li>
+	<li>Exportation (Exp): 
+		<ul>
+			<li>&phi; &rarr; (&psi; &rarr; &chi;) &hArr; (&phi; &and; &psi;) &rarr; &chi;</li>
+		</ul>
+	</li>
+	<li>Implication (Impl): 
+		<ul>
+			<li>&phi; &rarr; &psi; &hArr; &not;&phi; &or; &psi;</li>
+			<li>&not;(&phi; &rarr; &psi;) &hArr; &phi; &and; &not;&psi;</li>
+		</ul>
+	</li>
+	<li>Equivalence (Equiv): 
+		<ul>
+			<li>&phi; &harr; &psi; &hArr; (&phi; &rarr; &psi;) &and; (&psi; &rarr; &phi;)</li>
+			<li>&phi; &harr; &psi; &hArr; (&phi; &and; &psi;) &or; (&not;&psi; &and; &not;&phi;)</li>
+		</ul>
+	</li>
+</ul>
+Sub-proof: <br />
+<ul>
+	<li>Conditional Proof (CP): 
+		<ul>
+			<li>{&phi; |- &psi;} |- &phi; &rarr; &psi;</li>
+		</ul>
+	</li>
+</ul>
+<br />
+<h3>Checking Statements</h3>
+<p>
+Checking requires valid justification step numbers and a rule.
+</p>
+<p>
+Equivalence rules can be applied more than once in one step, but only if the applications are not nested.
+</p>
+<p>
+Equivalence rules can only be applied to whole substatements. For example, commutation on P&and;P&and;Q resulting in P&and;Q&and;P will be rejected because P&and;Q is not a whole substatement in P&and;P&and;Q. However, commutation on P&and;(P&and;Q) resulting in P&and;(Q&and;P) will be accepted.
+</p>
+<p>
+Statement variables (e.g. &phi;) in most inference and equivalence rules can only match whole substatements. For example, commutation on P&and;Q&and;R resulting in Q&and;R&and;P will be rejected because Q&and;R is not a whole substatement in P&and;Q&and;R. However, commutation on P&and;(Q&and;R) resulting in (Q&and;R)&and;P will be accepted. The exceptions to this are generalized simplification, generalized addition, and conjunction. For example, conjunction on P and Q&and;R resulting in P&and;Q&and;R will be accepted. 
+</p>
+<p>
+If a resulting logical sentence is not provided, this program can sometimes automatically generate one. For most inference rules, it generates the first one that works. For conditional proof, it takes the last statement the program can find in the cited sub-proof as the consequent (e.g. if the last "item" in the sub-proof is another sub-proof, the second-to-last item might be used instead). For equivalence rules, it will attempt to apply those rules as if they were inference rules (i.e. to the main statement only) in both directions.
+</p>
+<p>
+The program will on rare occasions automatically change an equivalence rule (selected in the rule drop-down box) to Reit when appropriate.
+</p>
+<br />
+<h3>Miscellaneous</h3>
+<p>
+Proving can take less time if you use operator shortcuts, tab through input elements, use the keyboard to select rules, etc. Tabbing and keyboard-based rule selection are browser-dependent, but should work in most browsers.
+</p>
+<p>
+Since this is a dynamic web page, there's no easy way to save it. Further, if you refresh the page, most browsers will reset the proof. 
+</p>
+<br />
+<h3>System Requirements</h3>
+<p>
+A browser that supports XHTML 1.0, standard and some non-standard JavaScript, CSS 2.0, and HTML DOM. Firefox and Opera are recommended, although most modern browsers will probably work. Internet Explorer 6, Firefox 2, and Opera 9 on Windows XP have been found to work with only minor problems. 
+</p>
+<p>
+Shortcuts for connectives will work correctly in Firefox and Opera. In IE 6, the shortcut characters will be correctly replaced with operator symbols, but the cursor will be placed at the end of the sentence rather than after newly inserted symbols. 
+</p>
+<p>
+This program does not place any limits on the depth of nested sub-proofs, but some browsers do limit the depth of nested tables, which limits the depth of sub-proofs. IE 6 has a limit of about 28 levels. Firefox has a limit of about 33. Opera can go past 100 and does not appear to have a limit. 
+</p>
+<br />
+<h3>About</h3>
+<p>
+This System B program was created by Jonathan Chang. <br />
+Last modified 03 May 2007. 
+</p>
+</div>
+</body>
+</html>
